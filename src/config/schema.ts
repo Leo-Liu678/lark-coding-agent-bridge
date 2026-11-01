@@ -165,6 +165,13 @@ export interface AppPreferences {
    */
   autoEffort?: AutoEffortPreference;
   /**
+   * 前缀开话题: a message opening with a 自动分级 rung (`/xhigh 帮我…`)
+   * outside a topic gets a topic of its own, opened under the message, and
+   * runs there. `false` keeps it in the conversation it was sent to.
+   * Config-file only. Default on (needs `autoEffort` for the rung names).
+   */
+  topicPrefix?: boolean;
+  /**
    * Whether to send a separate Lark COT process message before the final
    * answer. `brief` mirrors the lightweight tool/progress visibility from
    * the legacy tool display; `detailed` also includes tool args/output.

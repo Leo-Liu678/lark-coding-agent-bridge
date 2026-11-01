@@ -149,6 +149,7 @@ import { ProcessPool } from './process-pool';
 import { fetchQuotedContext, type QuotedContext } from './quote';
 import { ChatContextCursorStore, fetchChatContext, planChatContext } from './chat-context';
 import { lookupMessageThreadId } from './thread-id';
+import { matchTopicPrefix, openTopicUnder, topicOpenedText } from './topic-prefix';
 import {
   addDoneReaction,
   addSupplementReaction,
@@ -1399,15 +1400,26 @@ async function intakeMessage(deps: IntakeDeps): Promise<void> {
   // User tasks come first: an automatic 课堂精练 still drafting stops here.
   deps.controls.dream?.preempt('有新的用户消息');
 
+  // 前缀开话题: `/xhigh 帮我…` outside a topic runs in a topic of its own,
+  // opened under the message itself — not in this conversation, and not as a
+  // supplement to a run going on in it.
+  const routed =
+    resolvedMode === 'topic' || deps.recalled?.has(emsg.messageId)
+      ? undefined
+      : await routeTopicPrefix(channel, controls, emsg, scope);
+  const runMsg = routed?.msg ?? emsg;
+  const runScope = routed?.scope ?? scope;
+  const runMode: ChatMode = routed ? 'topic' : chatMode;
+
   if (
     await tryInjectSupplement({
       channel,
       activeRuns,
       media,
       controls,
-      msg: emsg,
-      scope,
-      mode: chatMode,
+      msg: runMsg,
+      scope: runScope,
+      mode: runMode,
       ...(deps.recalled ? { recalled: deps.recalled } : {}),
     })
   ) {
@@ -1415,12 +1427,43 @@ async function intakeMessage(deps: IntakeDeps): Promise<void> {
   }
 
   // Recalled while intake was still resolving it.
-  if (deps.recalled?.has(emsg.messageId)) {
-    log.info('intake', 'skip-recalled', { scope, msgId: emsg.messageId });
+  if (deps.recalled?.has(runMsg.messageId)) {
+    log.info('intake', 'skip-recalled', { scope: runScope, msgId: runMsg.messageId });
     return;
   }
-  const size = pending.push(scope, emsg);
-  log.info('intake', 'queued', { scope, queueSize: size, debounceMs: DEBOUNCE_MS });
+  const size = pending.push(runScope, runMsg);
+  log.info('intake', 'queued', { scope: runScope, queueSize: size, debounceMs: DEBOUNCE_MS });
+}
+
+/**
+ * A message opening with a rung prefix, outside any topic: open a topic under
+ * it and hand back the message as it runs there. Undefined when the message
+ * stays where it is — no prefix, the feature is off, or Feishu would not open
+ * the topic.
+ */
+async function routeTopicPrefix(
+  channel: LarkChannel,
+  controls: Controls,
+  msg: NormalizedMessage,
+  scope: string,
+): Promise<{ msg: NormalizedMessage; scope: string } | undefined> {
+  if (msg.threadId) return undefined;
+  const prefs = controls.profileConfig.preferences;
+  if (prefs.topicPrefix === false) return undefined;
+  const ladder = resolveAutoEffort(prefs.autoEffort, controls.profileConfig.agentKind)?.ladder ?? [];
+  const prefix = matchTopicPrefix(
+    msg.content ?? '',
+    ladder.map((r) => r.label),
+    { attachments: msg.resources.length, quoted: Boolean(msg.replyToMessageId) },
+  );
+  if (!prefix) return undefined;
+  const threadId = await openTopicUnder(channel, msg, topicOpenedText(prefix));
+  if (!threadId) return undefined;
+  const moved: NormalizedMessage = { ...msg, threadId };
+  if (isEdited(msg)) markEdited(moved);
+  const topicScope = `${msg.chatId}:${threadId}`;
+  log.info('topic-prefix', 'opened', { from: scope, scope: topicScope, msgId: msg.messageId, label: prefix.label });
+  return { msg: moved, scope: topicScope };
 }
 
 /**
