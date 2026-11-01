@@ -165,10 +165,10 @@ export interface AppPreferences {
    */
   autoEffort?: AutoEffortPreference;
   /**
-   * 前缀开话题: a message opening with a 自动分级 rung (`/xhigh 帮我…`)
-   * outside a topic gets a topic of its own, opened under the message, and
-   * runs there. `false` keeps it in the conversation it was sent to.
-   * Config-file only. Default on (needs `autoEffort` for the rung names).
+   * 前缀开话题: a message opening with `/new-topic` or a 自动分级 rung
+   * (`/xhigh 帮我…`) outside a topic gets a topic of its own, opened under
+   * the message, and runs there. `false` keeps it in the conversation it was
+   * sent to. Config-file only. Default on (rung names need `autoEffort`).
    */
   topicPrefix?: boolean;
   /**

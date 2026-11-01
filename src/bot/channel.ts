@@ -149,7 +149,14 @@ import { ProcessPool } from './process-pool';
 import { fetchQuotedContext, type QuotedContext } from './quote';
 import { ChatContextCursorStore, fetchChatContext, planChatContext } from './chat-context';
 import { lookupMessageThreadId } from './thread-id';
-import { isSpawnedTopic, markSpawnedTopic, matchTopicPrefix, openTopicUnder, topicOpenedText } from './topic-prefix';
+import {
+  isSpawnedTopic,
+  markSpawnedTopic,
+  matchTopicPrefix,
+  openTopicUnder,
+  topicOpenedText,
+  topicRunText,
+} from './topic-prefix';
 import {
   addDoneReaction,
   addSupplementReaction,
@@ -1436,7 +1443,7 @@ async function intakeMessage(deps: IntakeDeps): Promise<void> {
 }
 
 /**
- * A message opening with a rung prefix, outside any topic: open a topic under
+ * A message opening with `/new-topic` or a rung prefix, outside any topic: open a topic under
  * it and hand back the message as it runs there. Undefined when the message
  * stays where it is — no prefix, the feature is off, or Feishu would not open
  * the topic.
@@ -1459,7 +1466,7 @@ async function routeTopicPrefix(
   if (!prefix) return undefined;
   const threadId = await openTopicUnder(channel, msg, topicOpenedText(prefix));
   if (!threadId) return undefined;
-  const moved = markSpawnedTopic({ ...msg, threadId });
+  const moved = markSpawnedTopic({ ...msg, threadId, content: topicRunText(msg.content ?? '', prefix) });
   if (isEdited(msg)) markEdited(moved);
   const topicScope = `${msg.chatId}:${threadId}`;
   log.info('topic-prefix', 'opened', { from: scope, scope: topicScope, msgId: msg.messageId, label: prefix.label });

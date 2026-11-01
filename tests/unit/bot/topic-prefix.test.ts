@@ -1,12 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
-import { matchTopicPrefix, openTopicUnder, topicOpenedText } from '../../../src/bot/topic-prefix.js';
+import { matchTopicPrefix, openTopicUnder, topicOpenedText, topicRunText } from '../../../src/bot/topic-prefix.js';
 
 const LABELS = ['medium', 'high', 'xhigh', 'fable'];
 
 describe('matchTopicPrefix', () => {
   it('matches a rung prefix standing alone, case-insensitively', () => {
-    expect(matchTopicPrefix('/xhigh 帮我看下', LABELS)).toEqual({ label: 'xhigh', rest: '帮我看下' });
-    expect(matchTopicPrefix('  /Fable\n多行\n任务', LABELS)).toEqual({ label: 'fable', rest: '多行\n任务' });
+    expect(matchTopicPrefix('/xhigh 帮我看下', LABELS)).toEqual({ label: 'xhigh', kind: 'effort', rest: '帮我看下' });
+    expect(matchTopicPrefix('  /Fable\n多行\n任务', LABELS)).toEqual({ label: 'fable', kind: 'effort', rest: '多行\n任务' });
   });
 
   it('ignores other commands, glued words and prefixes not at the start', () => {
@@ -20,12 +20,28 @@ describe('matchTopicPrefix', () => {
   it('needs something to do after the prefix', () => {
     expect(matchTopicPrefix('/high', LABELS)).toBeUndefined();
     expect(matchTopicPrefix('/high   ', LABELS)).toBeUndefined();
-    expect(matchTopicPrefix('/high', LABELS, { attachments: 1 })).toEqual({ label: 'high', rest: '' });
-    expect(matchTopicPrefix('/high', LABELS, { quoted: true })).toEqual({ label: 'high', rest: '' });
+    expect(matchTopicPrefix('/high', LABELS, { attachments: 1 })).toEqual({ label: 'high', kind: 'effort', rest: '' });
+    expect(matchTopicPrefix('/high', LABELS, { quoted: true })).toEqual({ label: 'high', kind: 'effort', rest: '' });
+  });
+
+  it('matches /new-topic whatever the ladder', () => {
+    expect(matchTopicPrefix('/new-topic 把 X 拎出来', [])).toEqual({ label: 'new-topic', kind: 'new-topic', rest: '把 X 拎出来' });
+    expect(matchTopicPrefix('/New-Topic 做 Y', LABELS)).toMatchObject({ kind: 'new-topic', rest: '做 Y' });
+    expect(matchTopicPrefix('/new-topic', LABELS)).toBeUndefined();
+    expect(matchTopicPrefix('/new-topics 做 Y', LABELS)).toBeUndefined();
   });
 
   it('names the rung in the opening line', () => {
-    expect(topicOpenedText({ label: 'xhigh', rest: 'x' })).toContain('/xhigh');
+    expect(topicOpenedText({ label: 'xhigh', kind: 'effort', rest: 'x' })).toContain('/xhigh');
+    expect(topicOpenedText({ label: 'new-topic', kind: 'new-topic', rest: 'x' })).toContain('已开话题');
+  });
+
+  it('takes /new-topic off the text the run gets, and keeps a rung prefix', () => {
+    const text = '/new-topic 把 X 拎出来';
+    expect(topicRunText(text, matchTopicPrefix(text, LABELS)!)).toBe('把 X 拎出来');
+    const quoted = matchTopicPrefix('/new-topic', LABELS, { quoted: true })!;
+    expect(topicRunText('/new-topic', quoted)).not.toContain('/new-topic');
+    expect(topicRunText('/xhigh 看下', matchTopicPrefix('/xhigh 看下', LABELS)!)).toBe('/xhigh 看下');
   });
 });
 

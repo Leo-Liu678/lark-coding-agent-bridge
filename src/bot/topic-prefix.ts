@@ -3,20 +3,25 @@ import { log } from '../core/logger';
 import { lookupMessageThreadId } from './thread-id';
 
 /**
- * 前缀开话题: a message that opens with a rung of the 自动分级 ladder
- * (`/xhigh 帮我…`) is a task of its own. Outside a topic, the bot replies
+ * 前缀开话题: a message that opens with `/new-topic` or a rung of the
+ * 自动分级 ladder (`/xhigh 帮我…`) is a task of its own. Outside a topic, the bot replies
  * under that very message in thread — the message becomes the topic's first
  * post, so its sender follows the topic without being @-ed — and the message
  * runs in the topic's conversation instead of the chat's. Inside a topic
  * (topic groups included) it runs where it is: Feishu has no topic within a
  * topic.
  *
- * The prefix stays in the text: 自动分级 reads it to pin the rung.
+ * A rung prefix stays in the text: 自动分级 reads it to pin the rung. The
+ * `/new-topic` prefix comes off, or the agent would take it for the skill of
+ * that name and open yet another topic.
  */
 
+export const NEW_TOPIC_COMMAND = 'new-topic';
+
 export interface TopicPrefix {
-  /** The rung label as configured. */
+  /** `new-topic`, or the rung label as configured. */
   label: string;
+  kind: 'new-topic' | 'effort';
   /** The text after the prefix. */
   rest: string;
 }
@@ -36,13 +41,20 @@ export function matchTopicPrefix(
   const name = m[1]!.toLowerCase();
   const rest = text.slice(m[0].length).trim();
   if (!rest && !(extras.attachments ?? 0) && !extras.quoted) return undefined;
+  if (name === NEW_TOPIC_COMMAND) return { label: NEW_TOPIC_COMMAND, kind: 'new-topic', rest };
   const label = effortLabels.find((l) => l.toLowerCase() === name);
-  return label ? { label, rest } : undefined;
+  return label ? { label, kind: 'effort', rest } : undefined;
 }
 
 /** The line the bot opens the topic with. */
 export function topicOpenedText(prefix: TopicPrefix): string {
-  return `🧵 已开话题，按「/${prefix.label}」档在这里处理。`;
+  return prefix.kind === 'effort' ? `🧵 已开话题，按「/${prefix.label}」档在这里处理。` : '🧵 已开话题，在这里处理。';
+}
+
+/** The message text the topic's run gets: `/new-topic` taken off, a rung prefix kept. */
+export function topicRunText(text: string, prefix: TopicPrefix): string {
+  if (prefix.kind === 'effort') return text;
+  return prefix.rest || '请处理我引用的消息或发来的附件。';
 }
 
 /**

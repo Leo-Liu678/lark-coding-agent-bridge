@@ -133,6 +133,20 @@ describe('前缀开话题', () => {
     expect(prompt).toContain('刚才在查充电桩离线的问题');
   });
 
+  it('opens a topic for /new-topic and runs the task without the prefix', async () => {
+    const h = await createHarness({ chatMode: 'group', topicPrefix: undefined, rawThreadIds: { om_nt: 'omt_nt' } });
+    await startTestBridge(h);
+
+    await h.channel.handlers.message?.(message({ messageId: 'om_nt', content: '/new-topic 看看' }));
+    await waitFor(() => h.agent.runOptions.length === 1);
+
+    expect(h.channel.sent[0]?.options).toMatchObject({ replyTo: 'om_nt', replyInThread: true });
+    const prompt = h.agent.runOptions[0]?.prompt ?? '';
+    expect(prompt).toContain('"threadId":"omt_nt"');
+    expect(prompt).toContain('看看');
+    expect(prompt).not.toContain('/new-topic');
+  });
+
   it('leaves a message without a prefix where it is', async () => {
     const h = await createHarness({ chatMode: 'group', rawThreadIds: { om_plain: 'omt_x' } });
     await startTestBridge(h);
