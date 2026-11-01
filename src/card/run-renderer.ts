@@ -34,7 +34,10 @@ export interface RunCardMeta {
   sponsor?: string;
   /** This turn's consumption, e.g. `24.8k in / 51 out · ≈$0.03`. */
   usage?: string;
-  /** One-off note about the conversation itself, e.g. that 会话智能压缩 started a fresh one. */
+  /**
+   * One-off note about the conversation itself, e.g. that 会话智能压缩 started
+   * this run in a fresh one — shown at the top, since it happened before the run.
+   */
   notice?: string;
 }
 
@@ -76,6 +79,10 @@ export const STALL_WARN_MS = 3 * 60_000;
 export function renderCard(state: RunState, options: RunCardRenderOptions = {}): object {
   const elements: object[] = [];
   const t = runStrings(options.locale);
+
+  if (options.meta?.notice) {
+    elements.push({ tag: 'markdown', content: `<font color='grey'>🔄 ${options.meta.notice}</font>` });
+  }
 
   if (state.reasoning.content) {
     elements.push(reasoningPanel(state.reasoning.content, state.reasoning.active, t));
@@ -157,12 +164,8 @@ function byline(meta: RunCardMeta | undefined): object[] {
     meta.sponsor ? `Sponsor: ${meta.sponsor}` : undefined,
     meta.usage ? `Usage: ${meta.usage}` : undefined,
   ].filter((p): p is string => p !== undefined);
-  if (parts.length === 0 && !meta.notice) return [];
-  return [
-    { tag: 'hr' },
-    ...(meta.notice ? [{ tag: 'markdown', content: `<font color='grey'>🔄 ${meta.notice}</font>` }] : []),
-    ...(parts.length > 0 ? [{ tag: 'markdown', content: `<font color='grey'>${parts.join(' | ')}</font>` }] : []),
-  ];
+  if (parts.length === 0) return [];
+  return [{ tag: 'hr' }, { tag: 'markdown', content: `<font color='grey'>${parts.join(' | ')}</font>` }];
 }
 
 function* groupBlocks(blocks: Block[]): Generator<Group> {

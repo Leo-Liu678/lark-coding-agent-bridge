@@ -2218,6 +2218,8 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
     if (state) {
       // The follow-up's byline reports the background turn's own consumption.
       const usage = turn.kind === 'turn' ? usageLineOf(turn.events) : undefined;
+      // Nor does it repeat the run's 「本轮从新会话开始」: that was about the run.
+      const { notice: _runNotice, ...meta } = cardRenderOptions.meta ?? { title: '' };
       await sendFinalReply({
         channel,
         chatId,
@@ -2226,9 +2228,18 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
         replyMode,
         sendOpts,
         cardRenderOptions: cardRenderOptions.meta
-          ? { ...cardRenderOptions, meta: { ...cardRenderOptions.meta, usage } }
+          ? { ...cardRenderOptions, meta: { ...meta, usage } }
           : cardRenderOptions,
       });
+    }
+    // 会话智能压缩: the turn that ends the background work may close the
+    // conversation — the run's own answer could not while work was pending.
+    if (smartSession && turn.kind === 'turn' && turn.background === 0) {
+      const request = newSessionRequest(answerTextOf(finalizeIfRunning(turn.events.reduce(reduce, initialState))));
+      if (request) {
+        pendingRotations.set(scope, { ...request, ...(conversationHandle ? { handle: conversationHandle } : {}) });
+        log.info('session', 'rotation-requested', { scope, hasSummary: Boolean(request.summary), via: 'background-turn' });
+      }
     }
     if (turn.kind === 'stopped' || turn.background === 0) backgroundSettled = true;
     const completion = deferredCompletion;
@@ -2711,7 +2722,11 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
     if (longRunNotice) void sendLongRunNotice(channel, chatId, longRunNotice, sendOpts, scope);
     if (smartSession && runTerminal === 'done') {
       const request = newSessionRequest(answerTextOf(lastRawState));
-      if (request) {
+      if (request && background > 0) {
+        // Work still running isn't a finished task: closing the conversation
+        // now would cut it off from its own results.
+        log.info('session', 'rotation-request-ignored', { scope, background });
+      } else if (request) {
         pendingRotations.set(scope, { ...request, ...(conversationHandle ? { handle: conversationHandle } : {}) });
         log.info('session', 'rotation-requested', { scope, hasSummary: Boolean(request.summary) });
       }
