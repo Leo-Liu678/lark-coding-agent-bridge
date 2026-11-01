@@ -50,7 +50,9 @@ export type BackgroundTurn =
   | { kind: 'turn'; events: AgentEvent[]; background: number }
   /** `account`: the subscription account the stopped process ran on, for the card. */
   | { kind: 'stopped'; reason: 'max-linger'; afterMs: number; account?: string }
-  | { kind: 'stopped'; reason: 'shutdown'; account?: string };
+  | { kind: 'stopped'; reason: 'shutdown'; account?: string }
+  /** The next message needed a process with other run options (model, effort, images…). */
+  | { kind: 'stopped'; reason: 'replaced'; account?: string };
 
 export type BackgroundTurnHandler = (turn: BackgroundTurn) => Promise<void>;
 
@@ -244,7 +246,13 @@ export class RunExecutor {
           previous.session.detachTurn();
         }
       }
-      if (!live) await this.retire(previous, compatible ? 'input-closed' : 'incompatible');
+      if (!live) {
+        // Stopping it ends the background work too: whoever is waiting on it hears so.
+        if (!compatible && previous.session.background > 0 && !previous.session.hasExited) {
+          await this.notify(previous, { kind: 'stopped', reason: 'replaced', ...accountOf(previous) });
+        }
+        await this.retire(previous, compatible ? 'input-closed' : 'incompatible');
+      }
     }
 
     let run: AgentRun;
@@ -394,6 +402,11 @@ export class RunExecutor {
   hasLiveProcess(scopeId: string): boolean {
     const live = this.live.get(scopeId);
     return Boolean(live && !live.finishing && !live.session.hasExited);
+  }
+
+  /** Background tasks `scopeId`'s live process last reported running; 0 without one. */
+  backgroundTasks(scopeId: string): number {
+    return this.hasLiveProcess(scopeId) ? (this.live.get(scopeId)?.session.background ?? 0) : 0;
   }
 
   /**

@@ -177,6 +177,14 @@ import {
 } from './edit';
 import { mediaPlaceholders } from './media-placeholders';
 import { planLongRunNotice, sendLongRunNotice, type LongRunRequester } from './long-run-notice';
+import {
+  BackgroundOrigins,
+  backgroundTasksInstruction,
+  messagePreview,
+  settleBackgroundOrigins,
+  type BackgroundOrigin,
+  type ResultLocation,
+} from './background-origins';
 import { fetchKnownChats } from './lark-info';
 import type { AppPaths } from '../config/app-paths';
 import {
@@ -474,6 +482,8 @@ export async function startChannel(deps: StartChannelDeps): Promise<BridgeChanne
   const pendingRotations = new PendingRotationStore(deps.appPaths?.rotationsFile);
   await pendingRotations.load();
   controls.pendingRotations = pendingRotations;
+  // Messages whose run answered while background tasks still ran (see BackgroundOrigins).
+  const backgroundOrigins = new BackgroundOrigins();
   // 自动分级: each scope's rung on the effort ladder, on disk across restarts.
   const autoEfforts = new AutoEffortStore(
     deps.appPaths?.profileDir ? join(deps.appPaths.profileDir, 'auto-effort.json') : undefined,
@@ -615,6 +625,7 @@ export async function startChannel(deps: StartChannelDeps): Promise<BridgeChanne
           activePolicyFingerprints,
           lastRunModelByScope,
           pendingRotations,
+          backgroundOrigins,
           contextCursors,
           scope,
           mode,
@@ -1582,6 +1593,7 @@ interface RunBatchDeps {
   activePolicyFingerprints: Map<string, string>;
   lastRunModelByScope: Map<string, string>;
   pendingRotations: PendingRotationStore;
+  backgroundOrigins: BackgroundOrigins;
   contextCursors: ChatContextCursorStore;
   scope: string;
   mode: ChatMode;
@@ -1613,6 +1625,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
     activePolicyFingerprints,
     lastRunModelByScope,
     pendingRotations,
+    backgroundOrigins,
     contextCursors,
     scope,
     mode,
@@ -1793,6 +1806,15 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
   // A restricted chat fences every run there, the owner's included.
   const restrictedChat = controls.profileConfig.access.restrictedChats?.[chatId];
   const editedIds = batch.filter(isEdited).map((m) => m.messageId);
+  // This batch goes to a process still running background tasks for earlier
+  // messages (RunExecutor reuses it): their reports may land in this turn.
+  // Without such a process their entries are stale — that work is gone.
+  let waitingOrigins: BackgroundOrigin[] = [];
+  if (executor.hasLiveProcess(scope)) {
+    waitingOrigins = backgroundOrigins.list(scope, new Set(batch.map((m) => m.messageId)));
+  } else if (backgroundOrigins.take(scope).length > 0) {
+    log.info('run', 'background-origins-dropped', { scope });
+  }
   const instructions = [
     ...(restrictedChat ? [restrictedChatInstruction(restrictedChat)] : []),
     ...(autoEffortPlan?.forcedLabel
@@ -1809,6 +1831,9 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
       : []),
     ...(smartSession ? [SMART_SESSION_INSTRUCTION] : []),
     ...(editedIds.length > 0 ? [editInstruction(editedIds)] : []),
+    ...(waitingOrigins.length > 0
+      ? [backgroundTasksInstruction(waitingOrigins, executor.backgroundTasks(scope))]
+      : []),
   ];
   const extraInstructions = instructions.length > 0 ? instructions : undefined;
 
@@ -2205,9 +2230,26 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
     if (cardRenderOptions.meta) cardRenderOptions.meta.sponsor = sponsor;
   });
 
-  // Set when the run ended with background tasks still going: the 「完成」
-  // the run held back, sent once a background turn reports the work over.
-  let deferredCompletion: { requesters: LongRunRequester[] } | undefined;
+  // This run's message, as a place results can be pointed to.
+  const here: ResultLocation = {
+    messageId: lastMsg.messageId,
+    preview: messagePreview(mediaPlaceholders(lastMsg.content ?? '')),
+    sentAt: lastMsg.createTime || runSubmittedAt,
+  };
+  // Close out the messages waiting on this process's background work, now
+  // that it is over (see BackgroundOrigins).
+  const settleWaiting = (outcome: 'done' | 'stopped'): Promise<void> => {
+    const origins = backgroundOrigins.take(scope);
+    if (origins.length === 0) return Promise.resolve();
+    return settleBackgroundOrigins({
+      channel,
+      scope,
+      origins,
+      outcome,
+      where: here,
+      longRunNoticeMs: getLongRunNoticeMs(controls.cfg),
+    });
+  };
   // A background turn already reported the work over (it can beat this run's
   // own wrap-up below).
   let backgroundSettled = false;
@@ -2241,24 +2283,11 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
         log.info('session', 'rotation-requested', { scope, hasSummary: Boolean(request.summary), via: 'background-turn' });
       }
     }
-    if (turn.kind === 'stopped' || turn.background === 0) backgroundSettled = true;
-    const completion = deferredCompletion;
-    if (!completion || (turn.kind === 'turn' && turn.background > 0)) return;
-    deferredCompletion = undefined;
-    if (turn.kind === 'stopped') return;
-    log.info('run', 'background-done', { scope });
-    void addDoneReaction(channel, lastMsg.messageId);
-    // The follow-up above is a message of its own (it pushed); only a group's
-    // requesters still need the @.
-    const notice = planLongRunNotice({
-      thresholdMs: getLongRunNoticeMs(controls.cfg),
-      elapsedMs: Date.now() - runSubmittedAt,
-      terminal: 'done',
-      p2p: mode === 'p2p',
-      answerIsNewMessage: true,
-      requesters: completion.requesters,
-    });
-    if (notice) await sendLongRunNotice(channel, chatId, notice, sendOpts, scope);
+    if (turn.kind === 'turn' && turn.background > 0) return;
+    // The work is over: this message's follow-up holds the result; any other
+    // message still waiting on it is pointed here.
+    backgroundSettled = true;
+    await settleWaiting(turn.kind === 'stopped' ? 'stopped' : 'done');
   };
 
   // Add a "Typing" reaction to the triggering message as an instant ack that
@@ -2647,8 +2676,22 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
     // background turn that ends them — see deliverBackgroundTurn.
     const background = backgroundSettled ? 0 : backgroundLeft(lastRawState);
     if (runTerminal === 'done' && background > 0) {
-      deferredCompletion = { requesters: humanRequesters(batch) };
+      backgroundOrigins.add(scope, {
+        messageId: lastMsg.messageId,
+        chatId,
+        replyInThread: Boolean(sendOpts.replyInThread),
+        preview: here.preview,
+        sentAt: here.sentAt,
+        submittedAt: runSubmittedAt,
+        p2p: mode === 'p2p',
+        requesters: humanRequesters(batch),
+      });
       log.info('run', 'done-deferred', { scope, background });
+    } else if (runTerminal === 'done' && waitingOrigins.length > 0) {
+      // This turn ran in the process earlier messages' background work lived
+      // in, and that work is over now — its reports were folded into this
+      // turn (or it was stopped here): point those messages at this reply.
+      void settleWaiting('done');
     }
     if (runTerminal === 'done' && background === 0) void addDoneReaction(channel, lastMsg.messageId);
     if (autoResumer) {
@@ -2711,7 +2754,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
         }
       }
     }
-    const longRunNotice = deferredCompletion ? undefined : planLongRunNotice({
+    const longRunNotice = runTerminal === 'done' && background > 0 ? undefined : planLongRunNotice({
       thresholdMs: getLongRunNoticeMs(controls.cfg),
       elapsedMs: Date.now() - runSubmittedAt,
       terminal: runTerminal,
@@ -3598,7 +3641,9 @@ export function backgroundTurnState(
     const notice =
       turn.reason === 'shutdown'
         ? 'bridge 重启，还在运行的后台任务已停止。会话上下文没丢，需要的话回一句「继续」重新发起。'
-        : `后台任务运行超过 ${Math.round(turn.afterMs / 60_000)} 分钟仍未结束，已停止。需要的话请重新发起。`;
+        : turn.reason === 'replaced'
+          ? '下一条消息要换一个进程处理（模型、档位或附件不同），还在运行的后台任务已停止。会话上下文没丢，需要的话回一句「继续」重新发起。'
+          : `后台任务运行超过 ${Math.round(turn.afterMs / 60_000)} 分钟仍未结束，已停止。需要的话请重新发起。`;
     const start = turn.account ? reduce(initialState, { type: 'account', label: turn.account }) : initialState;
     return reduce(reduce(start, { type: 'text', delta: notice }), {
       type: 'done',
