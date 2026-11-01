@@ -62,8 +62,9 @@ export interface StartRunFlowInput {
    * The prompt's `<bridge_knowledge>` section (`full`, exactly as in the
    * prompt) and the stub that replaces it when the conversation the run
    * resumes still holds this `version` in full (agents that can tell).
+   * `onFull` is called when the full block goes out instead.
    */
-  knowledge?: { version: string; full: string; stub: string };
+  knowledge?: { version: string; full: string; stub: string; onFull?: () => void };
   /**
    * 会话智能压缩 (IM only): may leave the conversation this message would
    * resume and start fresh. Leave unset to always resume.
@@ -211,6 +212,8 @@ export async function startRunFlow(input: StartRunFlowInput): Promise<StartRunFl
     const { full, stub } = input.knowledge;
     runPolicy = { ...runPolicy, prompt: runPolicy.prompt.replace(full, () => stub) };
     log.info('knowledge', 'stub', { scope: input.scopeId, version: input.knowledge.version, savedChars: full.length - stub.length });
+  } else if (input.knowledge && runPolicy.prompt.includes(input.knowledge.full)) {
+    input.knowledge.onFull?.();
   }
   const sessionId = descriptor.sessionHandle === 'sessionId' ? resumeFrom : undefined;
   const threadId = descriptor.sessionHandle === 'threadId' ? resumeFrom : undefined;

@@ -124,7 +124,8 @@ import { handleCommentMention } from './comments';
 import { recordRunSessionEvent, startRunFlow } from './run-flow';
 import { reportInterruptedRuns } from './interrupted-notice';
 import { RunRegistry } from '../runtime/run-registry';
-import { buildKnowledgeContext, knowledgeStub, nativeSkillOption } from '../knowledge/inject';
+import { buildKnowledgeContext, knowledgeStub, listedNoteNames, nativeSkillOption } from '../knowledge/inject';
+import { NoteExposure } from '../knowledge/exposure';
 import { writeKnowledgeSnapshot } from '../knowledge/snapshot';
 import { getKnowledgeSyncIntervalMinutes, KnowledgeAutoSync } from '../knowledge/auto-sync';
 import { getSkillSyncIntervalMinutes, SkillLibraries } from '../knowledge/libraries';
@@ -350,8 +351,16 @@ export async function startChannel(deps: StartChannelDeps): Promise<BridgeChanne
   const knowledge = deps.appPaths?.knowledgeDir
     ? new KnowledgeStore(deps.appPaths.knowledgeDir)
     : undefined;
+  // How often each note was listed to the agent: the index shows the least shown in turn.
+  const noteExposure = knowledge && deps.appPaths?.knowledgeDir
+    ? new NoteExposure(join(dirname(deps.appPaths.knowledgeDir), 'note-exposure.json'))
+    : undefined;
   if (knowledge) {
     controls.knowledge = knowledge;
+    if (noteExposure) {
+      await noteExposure.load();
+      knowledge.setNoteExposure({ shown: () => noteExposure.asOf(Date.now()), record: (names) => noteExposure.record(names) });
+    }
     // Create the skeleton up front so `/skills` has a directory to point at and
     // `/knowledge bind` has something to commit.
     await knowledge.ensure().catch((err: unknown) =>
@@ -1826,6 +1835,10 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
         version: knowledgeContext.version,
         full: promptSection('bridge_knowledge', knowledgeContext),
         stub: promptSection('bridge_knowledge', knowledgeStub(knowledgeContext.version, knowledgeSnapshot)),
+        // The notes listed were put in front of the agent: the next days' index shows others first.
+        ...(knowledge && knowledgeContext.notes?.length
+          ? { onFull: () => knowledge.recordNoteExposure(listedNoteNames(knowledgeContext)) }
+          : {}),
       }
     : undefined;
 

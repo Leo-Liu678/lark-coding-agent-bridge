@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { basename, dirname } from 'node:path';
 import { nativeSkillDirsFor } from '../agent/native-skills';
 import type { AgentKind } from '../agent/registry';
-import { sanitizeScopeId, type KnowledgeStore, type MemoryEntry, type SkillSummary } from './store';
+import { sanitizeScopeId, type KnowledgeStore, type MemoryEntry, type NoteFile, type SkillSummary } from './store';
 
 export interface KnowledgeContext {
   /**
@@ -34,8 +34,6 @@ export interface BuildKnowledgeContextInput {
    * Code's `~/.claude/skills`): left out of the index rather than listed twice.
    */
   nativeSkillDirs?: ReadonlySet<string>;
-  /** Clock for telling new notes; defaults to now. */
-  now?: number;
 }
 
 export interface SkillRef {
@@ -63,18 +61,16 @@ const SKILL_INDEX_MAX_CHARS = 16_000;
 /** 课前学习 writes what it learned from other bots under `notes/external/`; every chat may read it. */
 const EXTERNAL_NOTES_SCOPE = 'external';
 /**
- * The notes index has four shares: this chat's own notes and other bots'
- * (`external/`), each the most read of the last 30 days first; the newest
- * notes of either side, newest first; and the least read of the older ones,
- * least first. A note too new, or too long unread, to rank among the most
- * read would otherwise never make the index, and so never be read. A share
- * with fewer notes than its slots leaves them to the others.
+ * The notes index has three shares: this chat's own notes and other bots'
+ * (`external/`), each the most read of the last 30 days first; and the least
+ * shown of either side ({@link KnowledgeStore.noteExposures}), newest first
+ * among equals. A note too new, or too long unread, to rank among the most
+ * read would otherwise never make the index, and so never be read; shown in
+ * turn, each gets its chance. A share with fewer notes than its slots leaves
+ * them to the others.
  */
-const NOTE_SHARES = { own: 40, newest: 30, coldest: 10, external: 40 } as const;
+const NOTE_SHARES = { own: 40, explore: 40, external: 40 } as const;
 const MAX_NOTES = Object.values(NOTE_SHARES).reduce((sum, slots) => sum + slots, 0);
-/** A note written within this many days counts as new. */
-const NEW_NOTE_DAYS = 7;
-const DAY_MS = 86_400_000;
 
 /**
  * Assemble what the agent should know before answering, or `undefined` when
@@ -90,32 +86,22 @@ export async function buildKnowledgeContext(
   // A topic (`oc_xxx:omt_yyy`) also sees its group's memory (`oc_xxx`), so a
   // topic group can keep one shared memory instead of one per topic.
   const groupId = input.scopeId.includes(':') ? input.scopeId.split(':')[0] : undefined;
-  // Notes also come from the chat's other topics, after this topic's and the chat's own.
-  const siblings = await input.store.noteTopicScopes(groupId ?? input.scopeId).catch(() => []);
-  const listNotes = (scopes: string[]) => input.store.listNotes(scopes).catch(() => []);
-  const [profile, group, topic, skills, scopeNotes, groupNotes, siblingNotes, externalAll] = await Promise.all([
+  const [profile, group, topic, skills, candidates] = await Promise.all([
     input.store.listMemories({ kind: 'profile' }),
     groupId ? input.store.listMemories({ kind: 'chat', scopeId: groupId }) : Promise.resolve([]),
     input.store.listMemories({ kind: 'chat', scopeId: input.scopeId }),
     input.store.listSkills(),
-    listNotes([input.scopeId]),
-    groupId ? listNotes([groupId]) : Promise.resolve([]),
-    listNotes(siblings.filter((scope) => scope !== sanitizeScopeId(input.scopeId))),
-    listNotes([EXTERNAL_NOTES_SCOPE]),
+    noteCandidates(input.store, input.scopeId),
   ]);
   // The notes read most lately first (课堂精练's recall counts); ties keep this topic's, the chat's, then other topics' order.
-  const ownNotes = input.store.rankNotes([...scopeNotes, ...groupNotes, ...siblingNotes]);
-  const externalNotes = input.store.rankNotes(externalAll);
+  const ownNotes = input.store.rankNotes(candidates.own);
+  const externalNotes = input.store.rankNotes(candidates.external);
   const notes = [...ownNotes, ...externalNotes];
-  const newSince = (input.now ?? Date.now()) - NEW_NOTE_DAYS * DAY_MS;
+  const shown = input.store.noteExposures?.() ?? (() => 0);
   const createdAt = input.store.noteCreatedAt?.() ?? ((note: { createdAt?: number }) => note.createdAt);
-  const born = new Map(notes.map((note) => [note, createdAt(note)]));
-  const newest = notes
-    .filter((note) => (born.get(note) ?? -Infinity) >= newSince)
-    .sort((a, b) => (born.get(b) ?? 0) - (born.get(a) ?? 0));
-  const fresh = new Set(newest);
-  const coldest = input.store.rankNotes(notes.filter((note) => !fresh.has(note)), 'asc');
-  const keptNotes = pickNotes({ own: ownNotes, external: externalNotes, newest, coldest });
+  const born = new Map(notes.map((note) => [note, createdAt(note) ?? 0]));
+  const explore = [...notes].sort((a, b) => shown(a.name) - shown(b.name) || born.get(b)! - born.get(a)!);
+  const keptNotes = pickNotes({ own: ownNotes, external: externalNotes, explore });
   const chat = [...group, ...topic];
 
   const budgeted = applyBudget(profile, chat, input.maxChars ?? DEFAULT_MAX_CHARS);
@@ -147,6 +133,34 @@ export function nativeSkillOption(kind: AgentKind): { nativeSkillDirs?: Readonly
   return dirs?.size ? { nativeSkillDirs: dirs } : {};
 }
 
+/**
+ * The notes a chat may be shown: its own (this topic's, the chat's, then the
+ * chat's other topics', in that order) and other bots' (`external/`).
+ */
+export async function noteCandidates(
+  store: KnowledgeStore,
+  scopeId: string,
+): Promise<{ own: NoteFile[]; external: NoteFile[] }> {
+  // A topic (`oc_xxx:omt_yyy`) also sees its group's notes, and every topic of the chat.
+  const groupId = scopeId.includes(':') ? scopeId.split(':')[0] : undefined;
+  const siblings = await store.noteTopicScopes(groupId ?? scopeId).catch(() => []);
+  const listNotes = (scopes: string[]) => store.listNotes(scopes).catch(() => []);
+  const [scopeNotes, groupNotes, siblingNotes, external] = await Promise.all([
+    listNotes([scopeId]),
+    groupId ? listNotes([groupId]) : Promise.resolve([]),
+    listNotes(siblings.filter((scope) => scope !== sanitizeScopeId(scopeId))),
+    listNotes([EXTERNAL_NOTES_SCOPE]),
+  ]);
+  return { own: [...scopeNotes, ...groupNotes, ...siblingNotes], external };
+}
+
+/** Names of the notes a block lists (`<scope>/<topic>`), whether it lists them by name or by path. */
+export function listedNoteNames(ctx: Pick<KnowledgeContext, 'notesDir' | 'notes'>): string[] {
+  const notes = ctx.notes ?? [];
+  if (ctx.notesDir) return [...notes];
+  return notes.map((path) => /([^/]+\/[^/]+)\.md$/.exec(path)?.[1] ?? path);
+}
+
 /** Stable short hash of a knowledge block's content. */
 export function knowledgeVersion(body: Omit<KnowledgeContext, 'version'>): string {
   return createHash('sha256').update(JSON.stringify(body)).digest('hex').slice(0, 16);
@@ -169,7 +183,7 @@ export type NoteShares<T> = { [share in keyof typeof NOTE_SHARES]?: readonly T[]
  * the slots left go round the shares in turn.
  */
 export function pickNotes<T>(lists: NoteShares<T>): T[] {
-  const order = ['own', 'newest', 'coldest', 'external'] as const;
+  const order = ['own', 'explore', 'external'] as const;
   const taken = new Set<T>();
   const shares = new Map(order.map((share) => [share, 0]));
   const queues = new Map(order.map((share) => [share, [...(lists[share] ?? [])]]));
@@ -184,8 +198,8 @@ export function pickNotes<T>(lists: NoteShares<T>): T[] {
     }
     return false;
   };
-  // New and least read first: such a note that is also among the most read leaves its own share a slot for the next one.
-  for (const share of ['newest', 'coldest', 'own', 'external'] as const) {
+  // Least shown first: such a note that is also among the most read leaves its own share a slot for the next one.
+  for (const share of ['explore', 'own', 'external'] as const) {
     while (shares.get(share)! < NOTE_SHARES[share] && take(share));
   }
   let room = MAX_NOTES - taken.size;
@@ -200,7 +214,7 @@ export function pickNotes<T>(lists: NoteShares<T>): T[] {
     if (!any) break;
   }
   // Listed own then external, each most read first, whichever share took them: when everything fits, the order still means something.
-  const listed = new Set([...(lists.own ?? []), ...(lists.external ?? []), ...(lists.newest ?? []), ...(lists.coldest ?? [])]);
+  const listed = new Set([...(lists.own ?? []), ...(lists.external ?? []), ...(lists.explore ?? [])]);
   return [...listed].filter((note) => taken.has(note));
 }
 

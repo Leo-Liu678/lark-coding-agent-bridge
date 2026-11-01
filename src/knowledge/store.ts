@@ -49,6 +49,12 @@ export interface NoteFile {
   createdAt?: number;
 }
 
+/** Counts of how often notes were shown to the agent (`NoteExposure`). */
+export interface NoteExposureTracker {
+  shown(): (name: string) => number;
+  record(names: readonly string[]): void;
+}
+
 /** Bullet lines look like `- [a1b2c3] remember this`. */
 const ENTRY_RE = /^-\s*\[([0-9a-f]{6})\]\s*(.*)$/;
 
@@ -57,6 +63,7 @@ export class KnowledgeStore {
   private readonly skillSources: SkillSource[] = [];
   private noteRanker: (() => (name: string) => number) | undefined;
   private noteFirstSeen: (() => (name: string) => number | undefined) | undefined;
+  private noteExposure: NoteExposureTracker | undefined;
 
   constructor(dir: string = paths.knowledgeDir) {
     this.dir = dir;
@@ -129,6 +136,34 @@ export class KnowledgeStore {
    */
   setNoteFirstSeen(lookup: (() => (name: string) => number | undefined) | undefined): void {
     this.noteFirstSeen = lookup;
+  }
+
+  /**
+   * How often a note (`<scope>/<topic>`) has been shown to the agent in the
+   * index (see `NoteExposure`): the least shown take the exploration share.
+   */
+  setNoteExposure(tracker: NoteExposureTracker | undefined): void {
+    this.noteExposure = tracker;
+  }
+
+  /** Each note's {@link setNoteExposure} count as of now; all 0 when none is set. */
+  noteExposures(): (name: string) => number {
+    let shown: ((name: string) => number) | undefined;
+    try {
+      shown = this.noteExposure?.shown();
+    } catch {
+      shown = undefined;
+    }
+    return (name) => (shown ? safeRank(shown, name) : 0);
+  }
+
+  /** These notes were just listed to the agent in a full knowledge block. */
+  recordNoteExposure(names: readonly string[]): void {
+    try {
+      this.noteExposure?.record(names);
+    } catch (err) {
+      log.warn('knowledge', 'exposure-record-failed', { err: String(err) });
+    }
   }
 
   /** When a note was first written: the earlier of its file's birth time and when 课堂精练 first saw it. */
