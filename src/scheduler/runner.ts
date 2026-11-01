@@ -10,6 +10,7 @@ import type { RunState } from '../card/run-state';
 import { renderText } from '../card/text-renderer';
 import { promptSection } from '../agent/prompt';
 import { buildKnowledgeContext, nativeSkillOption } from '../knowledge/inject';
+import { findRelevantNotes } from '../knowledge/relevance';
 import type { Controls } from '../commands';
 import { effortPrefForChat, getMessageReplyMode, getRunIdleTimeoutMs, getShowToolCalls } from '../config/schema';
 import { log } from '../core/logger';
@@ -273,8 +274,12 @@ async function buildJobPrompt(
         ...nativeSkillOption(deps.controls.profileConfig.agentKind),
       }).catch(() => undefined)
     : undefined;
+  const relevant = store
+    ? await findRelevantNotes({ store, scopeId: originScope, query: job.prompt }).catch(() => undefined)
+    : undefined;
   return [
     ...(knowledge ? [promptSection('bridge_knowledge', knowledge), ''] : []),
+    ...(relevant ? [promptSection('relevant_notes', relevant), ''] : []),
     `[定时任务 ${job.id}]`,
     `本次运行由 bridge 调度器在 ${formatTime(firedAt)} 触发（${scheduleLabel(job)}），没有人在旁边等着回答追问。`,
     '请直接完成任务并给出可以直接发到群里的结论；需要澄清的地方按最合理的假设推进，并在结论里说明假设。',

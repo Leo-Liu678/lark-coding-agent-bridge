@@ -126,6 +126,7 @@ import { reportInterruptedRuns } from './interrupted-notice';
 import { RunRegistry } from '../runtime/run-registry';
 import { buildKnowledgeContext, knowledgeStub, listedNoteNames, nativeSkillOption } from '../knowledge/inject';
 import { NoteExposure } from '../knowledge/exposure';
+import { findRelevantNotes, type RelevantNotes } from '../knowledge/relevance';
 import { writeKnowledgeSnapshot } from '../knowledge/snapshot';
 import { getKnowledgeSyncIntervalMinutes, KnowledgeAutoSync } from '../knowledge/auto-sync';
 import { getSkillSyncIntervalMinutes, SkillLibraries } from '../knowledge/libraries';
@@ -1841,6 +1842,17 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
           : {}),
       }
     : undefined;
+  // Notes matching what is asked now: a section of its own, so the index above keeps its version.
+  const relevantNotes = knowledge
+    ? await findRelevantNotes({
+        store: knowledge,
+        scopeId: scope,
+        query: batch.map((m) => m.content).join('\n'),
+      }).catch((err: unknown) => {
+        log.warn('knowledge', 'relevance-failed', { scope, err: String(err) });
+        return undefined;
+      })
+    : undefined;
 
   // Changes to the bridge and the agent itself are the owner's alone: other
   // people's runs are told so and fenced off at the tool level.
@@ -1854,6 +1866,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
     extraInstructions,
     knowledgeContext,
     ownerRun,
+    relevantNotes,
   );
   log.info('prompt', 'built', {
     promptChars: prompt.length,
@@ -3335,6 +3348,7 @@ function buildPrompt(
   extraInstructions?: string[],
   knowledge?: BridgePromptKnowledge,
   senderIsOwner = false,
+  relevantNotes?: RelevantNotes,
 ): string {
   const first = batch[0];
   if (!first) return '';
@@ -3381,6 +3395,7 @@ function buildPrompt(
         : BRIDGE_AGENT_INSTRUCTIONS,
     userInput: userPart,
     ...(knowledge ? { knowledge } : {}),
+    ...(relevantNotes ? { relevantNotes } : {}),
     ...(chatContext ? { chatContext } : {}),
     quotedMessages: quotes.map(toPromptQuote),
     interactiveCards: batch.map(toPromptInteractiveCard).filter(isDefined),

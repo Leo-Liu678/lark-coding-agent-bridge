@@ -107,6 +107,8 @@ export interface BuildAgentPromptInput {
   instructions?: string[];
   userInput: string;
   knowledge?: BridgePromptKnowledge;
+  /** Notes that match this message's words (`findRelevantNotes`), apart from the versioned index. */
+  relevantNotes?: { notesDir?: string; notes: string[] };
   chatContext?: BridgePromptChatContext;
   quotedMessages?: BridgePromptQuotedMessage[];
   interactiveCards?: BridgePromptInteractiveCard[];
@@ -121,6 +123,9 @@ export function buildAgentPrompt(input: BuildAgentPromptInput): string {
       ? promptSection('bridge_instructions', input.instructions)
       : undefined,
     input.knowledge ? promptSection('bridge_knowledge', input.knowledge) : undefined,
+    input.relevantNotes && input.relevantNotes.notes.length > 0
+      ? promptSection('relevant_notes', input.relevantNotes)
+      : undefined,
     input.chatContext && input.chatContext.messages.length > 0
       ? promptSection('chat_context', input.chatContext)
       : undefined,
