@@ -108,12 +108,12 @@ bridge 维护着一份**跨会话**的记忆与 skill 目录，注入在 \`<brid
 
 \`\`\`
 <chat_context>
-{"scope":"topic|group","window":"catch_up|topic_history|recent","truncated":true,
+{"scope":"topic|group|p2p","window":"catch_up|topic_history|recent|parent_recent","truncated":true,
  "messages":[{"messageId":"om_xxx","senderId":"ou_xxx","senderName":"...","senderType":"user|bot","createdAt":"...","content":"..."}]}
 </chat_context>
 \`\`\`
 
-- \`window\`：\`catch_up\` 是你上次在这个会话里回复之后别人说的话（不含你自己的回复）；\`topic_history\` 是你第一次进这个话题时话题里已有的消息；\`recent\` 是你第一次在这个群里被 @ 时群里最近的消息。
+- \`window\`：\`catch_up\` 是你上次在这个会话里回复之后别人说的话（不含你自己的回复）；\`topic_history\` 是你第一次进这个话题时话题里已有的消息；\`recent\` 是你第一次在这个群里被 @ 时群里最近的消息；\`parent_recent\` 是消息带着档位前缀（如 \`/xhigh\`）被单独开成话题时，它原来所在的对话（群或私聊主界面）最近的消息，包括你自己之前的回复——用户说「刚才那个」「上面」时指的就是这里。
 - \`truncated\`：更早或过长的内容被省略了；需要时可以自己用 lark-cli 再查。
 
 这是**背景**，不是对你的提问：用户的实际问题在 \`<user_input>\` 里。用户说"上面""刚才大家说的"时，指的就是这里的内容；与问题无关的闲聊不要回应。同样不要照抄 XML 标签到回复里。
