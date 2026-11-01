@@ -149,7 +149,7 @@ import { ProcessPool } from './process-pool';
 import { fetchQuotedContext, type QuotedContext } from './quote';
 import { ChatContextCursorStore, fetchChatContext, planChatContext } from './chat-context';
 import { lookupMessageThreadId } from './thread-id';
-import { matchTopicPrefix, openTopicUnder, topicOpenedText } from './topic-prefix';
+import { isSpawnedTopic, markSpawnedTopic, matchTopicPrefix, openTopicUnder, topicOpenedText } from './topic-prefix';
 import {
   addDoneReaction,
   addSupplementReaction,
@@ -1459,7 +1459,7 @@ async function routeTopicPrefix(
   if (!prefix) return undefined;
   const threadId = await openTopicUnder(channel, msg, topicOpenedText(prefix));
   if (!threadId) return undefined;
-  const moved: NormalizedMessage = { ...msg, threadId };
+  const moved = markSpawnedTopic({ ...msg, threadId });
   if (isEdited(msg)) markEdited(moved);
   const topicScope = `${msg.chatId}:${threadId}`;
   log.info('topic-prefix', 'opened', { from: scope, scope: topicScope, msgId: msg.messageId, label: prefix.label });
@@ -1793,6 +1793,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
     cursorMs: contextCursors.get(scope),
     hasSession: Boolean(sessions.getRaw(scope)?.sessionId),
     untilMs: contextUntilMs,
+    spawned: batch.some(isSpawnedTopic),
   });
   let chatContext: BridgePromptChatContext | undefined;
   if (contextPlan) {
@@ -1803,7 +1804,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
     });
     if (fetched.messages.length > 0) {
       chatContext = {
-        scope: contextPlan.container === 'thread' ? 'topic' : 'group',
+        scope: contextPlan.container === 'thread' ? 'topic' : firstMsg.chatType === 'p2p' ? 'p2p' : 'group',
         window: contextPlan.window,
         ...(fetched.truncated ? { truncated: true } : {}),
         messages: fetched.messages.map(toPromptContextMessage),

@@ -59,11 +59,14 @@ export interface BridgePromptContextMessage {
  *   own replies left out — they're in the session).
  * - `topic_history`: the topic so far, on the bot's first run in it.
  * - `recent`: the group's latest messages, on the bot's first run there.
+ * - `parent_recent`: the latest messages of the conversation a topic prefix
+ *   (`/xhigh …`) moved the message out of, on the first run in its topic.
  */
-export type BridgePromptChatContextWindow = 'catch_up' | 'topic_history' | 'recent';
+export type BridgePromptChatContextWindow = 'catch_up' | 'topic_history' | 'recent' | 'parent_recent';
 
 export interface BridgePromptChatContext {
-  scope: 'topic' | 'group';
+  /** Where the messages were read: a topic, a group's main flow, or a private chat's. */
+  scope: 'topic' | 'group' | 'p2p';
   window: BridgePromptChatContextWindow;
   /** Older or longer content was left out to stay within limits. */
   truncated?: boolean;

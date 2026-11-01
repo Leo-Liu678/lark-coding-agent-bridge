@@ -110,6 +110,29 @@ describe('前缀开话题', () => {
     expect(h.agent.runOptions[0]?.prompt ?? '').toContain('"threadId":"omt_dm"');
   });
 
+  it('gives the first run in the new topic the conversation it left', async () => {
+    const h = await createHarness({
+      chatMode: 'group',
+      rawThreadIds: { om_dm_ctx: 'omt_ctx' },
+      threadMessages: [textItem('om_before', 'ou_user', 1760000000500, '刚才在查充电桩离线的问题')],
+    });
+    await startTestBridge(h);
+
+    await h.channel.handlers.message?.(
+      message({ messageId: 'om_dm_ctx', chatType: 'p2p', mentionedBot: false, content: '/high 接着刚才那个查' }),
+    );
+    await waitFor(() => h.agent.runOptions.length === 1);
+
+    const list = h.channel.rawClient.im.v1.message.list;
+    expect(list).toHaveBeenCalledWith(
+      expect.objectContaining({ params: expect.objectContaining({ container_id_type: 'chat', container_id: 'oc_topic_chat' }) }),
+    );
+    const prompt = h.agent.runOptions[0]?.prompt ?? '';
+    expect(prompt).toContain('"window":"parent_recent"');
+    expect(prompt).toContain('"scope":"p2p"');
+    expect(prompt).toContain('刚才在查充电桩离线的问题');
+  });
+
   it('leaves a message without a prefix where it is', async () => {
     const h = await createHarness({ chatMode: 'group', rawThreadIds: { om_plain: 'omt_x' } });
     await startTestBridge(h);

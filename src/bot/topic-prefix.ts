@@ -70,3 +70,15 @@ export async function openTopicUnder(
   if (!threadId) log.warn('topic-prefix', 'thread-id-missing', { msgId: msg.messageId });
   return threadId;
 }
+
+const spawned = new WeakSet<NormalizedMessage>();
+
+/** Tag a message moved into a topic of its own, so its first run reads back the conversation it left. */
+export function markSpawnedTopic(msg: NormalizedMessage): NormalizedMessage {
+  spawned.add(msg);
+  return msg;
+}
+
+export function isSpawnedTopic(msg: NormalizedMessage): boolean {
+  return spawned.has(msg);
+}
