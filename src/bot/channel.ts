@@ -37,6 +37,7 @@ import { runningToolLabel } from '../card/run-activity';
 import { renderCard } from '../card/run-renderer';
 import type { RunActivity, RunCardRenderOptions } from '../card/run-renderer';
 import {
+  backgroundLeft,
   finalizeIfRunning,
   initialState,
   reduce,
@@ -2204,24 +2205,49 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
     if (cardRenderOptions.meta) cardRenderOptions.meta.sponsor = sponsor;
   });
 
+  // Set when the run ended with background tasks still going: the 「完成」
+  // the run held back, sent once a background turn reports the work over.
+  let deferredCompletion: { requesters: LongRunRequester[] } | undefined;
+  // A background turn already reported the work over (it can beat this run's
+  // own wrap-up below).
+  let backgroundSettled = false;
   // Turns the agent runs on its own after this reply (a background task it
   // started reported back) go out as a follow-up reply to the same message.
   deliverBackgroundTurn = async (turn) => {
     const state = backgroundTurnState(turn, filterForPrefs);
-    if (!state) return;
-    // The follow-up's byline reports the background turn's own consumption.
-    const usage = turn.kind === 'turn' ? usageLineOf(turn.events) : undefined;
-    await sendFinalReply({
-      channel,
-      chatId,
-      scope,
-      state: separateFinalReply ? finalAnswerOnlyState(state) : state,
-      replyMode,
-      sendOpts,
-      cardRenderOptions: cardRenderOptions.meta
-        ? { ...cardRenderOptions, meta: { ...cardRenderOptions.meta, usage } }
-        : cardRenderOptions,
+    if (state) {
+      // The follow-up's byline reports the background turn's own consumption.
+      const usage = turn.kind === 'turn' ? usageLineOf(turn.events) : undefined;
+      await sendFinalReply({
+        channel,
+        chatId,
+        scope,
+        state: separateFinalReply ? finalAnswerOnlyState(state) : state,
+        replyMode,
+        sendOpts,
+        cardRenderOptions: cardRenderOptions.meta
+          ? { ...cardRenderOptions, meta: { ...cardRenderOptions.meta, usage } }
+          : cardRenderOptions,
+      });
+    }
+    if (turn.kind === 'stopped' || turn.background === 0) backgroundSettled = true;
+    const completion = deferredCompletion;
+    if (!completion || (turn.kind === 'turn' && turn.background > 0)) return;
+    deferredCompletion = undefined;
+    if (turn.kind === 'stopped') return;
+    log.info('run', 'background-done', { scope });
+    void addDoneReaction(channel, lastMsg.messageId);
+    // The follow-up above is a message of its own (it pushed); only a group's
+    // requesters still need the @.
+    const notice = planLongRunNotice({
+      thresholdMs: getLongRunNoticeMs(controls.cfg),
+      elapsedMs: Date.now() - runSubmittedAt,
+      terminal: 'done',
+      p2p: mode === 'p2p',
+      answerIsNewMessage: true,
+      requesters: completion.requesters,
     });
+    if (notice) await sendLongRunNotice(channel, chatId, notice, sendOpts, scope);
   };
 
   // Add a "Typing" reaction to the triggering message as an instant ack that
@@ -2605,7 +2631,15 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
       durationMs: Date.now() - runSubmittedAt,
     });
     scheduleWorkingReactionCleanup(channel, lastMsg.messageId, reactionPromise);
-    if (runTerminal === 'done') void addDoneReaction(channel, lastMsg.messageId);
+    // Answered, but background tasks the agent started still run: the task
+    // isn't over, so 「完成」 (reaction, long-run notice) waits for the
+    // background turn that ends them — see deliverBackgroundTurn.
+    const background = backgroundSettled ? 0 : backgroundLeft(lastRawState);
+    if (runTerminal === 'done' && background > 0) {
+      deferredCompletion = { requesters: humanRequesters(batch) };
+      log.info('run', 'done-deferred', { scope, background });
+    }
+    if (runTerminal === 'done' && background === 0) void addDoneReaction(channel, lastMsg.messageId);
     if (autoResumer) {
       if (runTerminal === 'paused' && runLimit && canAutoResume) {
         void autoResumer.schedule({
@@ -2666,7 +2700,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
         }
       }
     }
-    const longRunNotice = planLongRunNotice({
+    const longRunNotice = deferredCompletion ? undefined : planLongRunNotice({
       thresholdMs: getLongRunNoticeMs(controls.cfg),
       elapsedMs: Date.now() - runSubmittedAt,
       terminal: runTerminal,
@@ -3000,7 +3034,8 @@ async function recallIfEmptyStreamedReply(
     );
     return;
   }
-  if (renderText(finalState).trim() !== '') return;
+  // The 「后台任务还在跑」 note alone is no answer.
+  if (renderText({ ...finalState, background: 0 }).trim() !== '') return;
   const result = await progress.settled.catch(() => undefined);
   await recallStreamedMessage(channel, result, scope);
 }
@@ -3556,12 +3591,13 @@ export function backgroundTurnState(
     });
   }
   const own = finalizeIfRunning(turn.events.reduce(reduce, initialState));
-  if (!renderText(filterForPrefs(own)).trim()) return undefined;
+  // A turn that only says background work goes on (a heartbeat) has nothing to tell.
+  if (!renderText(filterForPrefs({ ...own, background: 0 })).trim()) return undefined;
   const withPrefix = turn.events.reduce(
     reduce,
     reduce(initialState, { type: 'text', delta: BACKGROUND_TURN_PREFIX }),
   );
-  return filterForPrefs(finalizeIfRunning(withPrefix));
+  return filterForPrefs({ ...finalizeIfRunning(withPrefix), background: turn.background });
 }
 
 /** Queued messages older than this at boot are reported instead of processed. */

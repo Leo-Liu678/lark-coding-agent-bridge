@@ -46,7 +46,8 @@ export interface RunExecutorDeps {
  * that the process was stopped with background work still running.
  */
 export type BackgroundTurn =
-  | { kind: 'turn'; events: AgentEvent[] }
+  /** `background`: tasks still running after this turn — 0 once the work is over. */
+  | { kind: 'turn'; events: AgentEvent[]; background: number }
   /** `account`: the subscription account the stopped process ran on, for the card. */
   | { kind: 'stopped'; reason: 'max-linger'; afterMs: number; account?: string }
   | { kind: 'stopped'; reason: 'shutdown'; account?: string };
@@ -524,7 +525,7 @@ export class RunExecutor {
       events: events.length,
       background: live.session.background,
     });
-    void this.notify(live, { kind: 'turn', events }).then(async () => {
+    void this.notify(live, { kind: 'turn', events, background: live.session.background }).then(async () => {
       if (live.session.background > 0 || live.session.hasAttachedTurn || live.session.hasExited) return;
       // No background work left: wait idle for the next message where the
       // agent supports it, otherwise make sure the process goes away (the

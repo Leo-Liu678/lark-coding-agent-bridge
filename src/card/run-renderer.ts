@@ -2,7 +2,7 @@ import { extractCodeBlocks } from './code-snippets';
 import { deepMaskEmails } from './mask-email';
 import { runStrings, type Locale, type RunStrings } from './i18n';
 import { pauseNotice } from './pause-notice';
-import type { Block, FooterStatus, RunState, Terminal, ToolEntry } from './run-state';
+import { backgroundLeft, type Block, type FooterStatus, type RunState, type Terminal, type ToolEntry } from './run-state';
 import { toolBodyMd, toolHeaderText } from './tool-render';
 
 const REASONING_MAX = 1500;
@@ -102,6 +102,8 @@ export function renderCard(state: RunState, options: RunCardRenderOptions = {}):
   } else if (state.terminal === 'done' && elements.length === 0) {
     elements.push(noteMd(t.noContent));
   }
+  const background = backgroundLeft(state);
+  if (background > 0) elements.push(noteMd(t.backgroundRunning(background)));
 
   if (state.terminal === 'running') {
     if (state.footer) elements.push(footerStatus(state.footer, t, options.activity));
@@ -371,7 +373,7 @@ function summaryText(state: RunState, t: RunStrings): string {
   if (state.terminal === 'idle_timeout') return t.summary.idleTimeout;
   if (state.terminal === 'paused') return t.summary.paused;
   if (state.terminal === 'error') return t.summary.error;
-  if (state.terminal === 'done') return t.summary.done;
+  if (state.terminal === 'done') return backgroundLeft(state) > 0 ? t.summary.backgroundRunning : t.summary.done;
   if (state.footer === 'tool_running') return t.summary.toolRunning;
   if (state.footer === 'streaming') return t.summary.streaming;
   return t.summary.thinking;

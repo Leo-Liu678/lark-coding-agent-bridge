@@ -222,6 +222,7 @@ describe('RunExecutor background tasks', () => {
     expect(turns[0]).toEqual({
       kind: 'turn',
       events: [{ type: 'background', count: 0 }, { type: 'text', delta: 'build ok' }, done()],
+      background: 0,
     });
 
     live.exit();
@@ -312,6 +313,7 @@ describe('RunExecutor background tasks', () => {
     expect(turns[0]).toEqual({
       kind: 'turn',
       events: [{ type: 'account', label: 'shilong.wang' }, { type: 'text', delta: 'agent 1 done' }, done()],
+      background: 1,
     });
 
     // Still running when the linger cap hits: the stop notice names it too.
