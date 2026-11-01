@@ -34,6 +34,8 @@ export interface BuildKnowledgeContextInput {
    * Code's `~/.claude/skills`): left out of the index rather than listed twice.
    */
   nativeSkillDirs?: ReadonlySet<string>;
+  /** Clock for telling new notes; defaults to now. */
+  now?: number;
 }
 
 export interface SkillRef {
@@ -60,13 +62,19 @@ const MAX_DESCRIPTION_CHARS = 240;
 const SKILL_INDEX_MAX_CHARS = 16_000;
 /** 课前学习 writes what it learned from other bots under `notes/external/`; every chat may read it. */
 const EXTERNAL_NOTES_SCOPE = 'external';
-const MAX_NOTES = 60;
 /**
- * Index slots kept for `external/` notes when this chat's own notes would
- * fill the index on their own: own notes come first (they are about this
- * chat), but other bots' notes are among the most read and keep a share.
+ * The notes index has four shares: this chat's own notes and other bots'
+ * (`external/`), each the most read of the last 30 days first; the newest
+ * notes of either side, newest first; and the least read of the older ones,
+ * least first. A note too new, or too long unread, to rank among the most
+ * read would otherwise never make the index, and so never be read. A share
+ * with fewer notes than its slots leaves them to the others.
  */
-const MIN_EXTERNAL_NOTES = 20;
+const NOTE_SHARES = { own: 40, newest: 30, coldest: 10, external: 40 } as const;
+const MAX_NOTES = Object.values(NOTE_SHARES).reduce((sum, slots) => sum + slots, 0);
+/** A note written within this many days counts as new. */
+const NEW_NOTE_DAYS = 7;
+const DAY_MS = 86_400_000;
 
 /**
  * Assemble what the agent should know before answering, or `undefined` when
@@ -95,11 +103,19 @@ export async function buildKnowledgeContext(
     listNotes(siblings.filter((scope) => scope !== sanitizeScopeId(input.scopeId))),
     listNotes([EXTERNAL_NOTES_SCOPE]),
   ]);
-  // Within each part, the notes read most lately first (课堂精练's recall counts).
-  const ownNotes = [scopeNotes, groupNotes, siblingNotes].flatMap((part) => input.store.rankNotes(part));
+  // The notes read most lately first (课堂精练's recall counts); ties keep this topic's, the chat's, then other topics' order.
+  const ownNotes = input.store.rankNotes([...scopeNotes, ...groupNotes, ...siblingNotes]);
   const externalNotes = input.store.rankNotes(externalAll);
   const notes = [...ownNotes, ...externalNotes];
-  const keptNotes = pickNotes(ownNotes, externalNotes);
+  const newSince = (input.now ?? Date.now()) - NEW_NOTE_DAYS * DAY_MS;
+  const createdAt = input.store.noteCreatedAt?.() ?? ((note: { createdAt?: number }) => note.createdAt);
+  const born = new Map(notes.map((note) => [note, createdAt(note)]));
+  const newest = notes
+    .filter((note) => (born.get(note) ?? -Infinity) >= newSince)
+    .sort((a, b) => (born.get(b) ?? 0) - (born.get(a) ?? 0));
+  const fresh = new Set(newest);
+  const coldest = input.store.rankNotes(notes.filter((note) => !fresh.has(note)), 'asc');
+  const keptNotes = pickNotes({ own: ownNotes, external: externalNotes, newest, coldest });
   const chat = [...group, ...topic];
 
   const budgeted = applyBudget(profile, chat, input.maxChars ?? DEFAULT_MAX_CHARS);
@@ -145,16 +161,47 @@ export function knowledgeStub(version: string, snapshot?: string): { unchangedSi
   return { unchangedSince: version, ...(snapshot ? { snapshot } : {}) };
 }
 
+export type NoteShares<T> = { [share in keyof typeof NOTE_SHARES]?: readonly T[] };
+
 /**
- * The notes that make the index: this chat's own first, then other bots'
- * (`external/`), {@link MAX_NOTES} in all. Own notes leave at least
- * {@link MIN_EXTERNAL_NOTES} slots to external ones, so neither side can push
- * the other out of the index entirely.
+ * The notes that make the index, {@link MAX_NOTES} at most: each share's
+ * first {@link NOTE_SHARES} slots (a note in two lists is taken once), then
+ * the slots left go round the shares in turn.
  */
-export function pickNotes<T>(own: readonly T[], external: readonly T[]): T[] {
-  const reserve = Math.min(external.length, MIN_EXTERNAL_NOTES);
-  const keptOwn = own.slice(0, MAX_NOTES - reserve);
-  return [...keptOwn, ...external.slice(0, MAX_NOTES - keptOwn.length)];
+export function pickNotes<T>(lists: NoteShares<T>): T[] {
+  const order = ['own', 'newest', 'coldest', 'external'] as const;
+  const taken = new Set<T>();
+  const shares = new Map(order.map((share) => [share, 0]));
+  const queues = new Map(order.map((share) => [share, [...(lists[share] ?? [])]]));
+  const take = (share: (typeof order)[number]): boolean => {
+    const queue = queues.get(share)!;
+    while (queue.length > 0) {
+      const note = queue.shift()!;
+      if (taken.has(note)) continue;
+      taken.add(note);
+      shares.set(share, shares.get(share)! + 1);
+      return true;
+    }
+    return false;
+  };
+  // New and least read first: such a note that is also among the most read leaves its own share a slot for the next one.
+  for (const share of ['newest', 'coldest', 'own', 'external'] as const) {
+    while (shares.get(share)! < NOTE_SHARES[share] && take(share));
+  }
+  let room = MAX_NOTES - taken.size;
+  while (room > 0) {
+    let any = false;
+    for (const share of order) {
+      if (room > 0 && take(share)) {
+        room--;
+        any = true;
+      }
+    }
+    if (!any) break;
+  }
+  // Listed own then external, each most read first, whichever share took them: when everything fits, the order still means something.
+  const listed = new Set([...(lists.own ?? []), ...(lists.external ?? []), ...(lists.newest ?? []), ...(lists.coldest ?? [])]);
+  return [...listed].filter((note) => taken.has(note));
 }
 
 /**

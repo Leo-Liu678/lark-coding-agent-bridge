@@ -361,6 +361,8 @@ export class DreamService {
       const reads = this.recall.counter(NOTE_RANK_DAYS, this.now(), resolveDreamSettings(this.deps.appConfig().preferences?.dreamTuning).auto.timezone);
       return (name) => reads(`note:${name}`);
     });
+    // …and tells a new note by when it was first seen as well as by its file, which a rewrite renews.
+    this.deps.knowledge.setNoteFirstSeen?.(() => (name) => this.recall.firstSeen(`note:${name}`));
     this.unsubscribe =this.deps.sessionCatalog?.onUpsert((entry) => {
       if (this.enabled()) this.noteEntry(entry, entry.updatedAt);
     });

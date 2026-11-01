@@ -15,6 +15,7 @@ function fakeStore(
     profile?: string[];
     notes?: Record<string, string[]>;
     rank?: Record<string, number>;
+    created?: Record<string, number>;
   } = {},
 ): KnowledgeStore {
   return {
@@ -25,8 +26,10 @@ function fakeStore(
         { name: 'occam:coffee', path: '/lib/occam-skills/skills/occam-coffee/SKILL.md' },
         { name: 'antelope:tcpdump', path: '/lib/occam-skills/skills/antelope-tcpdump/SKILL.md' },
       ]).map((s) => ({ ...s, description: `${s.name} 的说明` })),
-    rankNotes: <T extends { name: string }>(notes: T[]) =>
-      over.rank ? [...notes].sort((a, b) => (over.rank![b.name] ?? 0) - (over.rank![a.name] ?? 0)) : [...notes],
+    rankNotes: <T extends { name: string }>(notes: T[], order: 'desc' | 'asc' = 'desc') =>
+      over.rank
+        ? [...notes].sort((a, b) => (order === 'asc' ? -1 : 1) * ((over.rank![b.name] ?? 0) - (over.rank![a.name] ?? 0)))
+        : [...notes],
     noteTopicScopes: async (chatId: string) =>
       Object.keys(over.notes ?? {})
         .filter((scope) => scope.startsWith(`${chatId}_omt_`))
@@ -36,6 +39,7 @@ function fakeStore(
         (over.notes?.[scope] ?? (scope === 'external' ? ['feishu-card', 'au-timezone'] : [])).map((topic) => ({
           name: `${scope}/${topic}`,
           path: `${NOTES}/${scope}/${topic}.md`,
+          ...(over.created?.[`${scope}/${topic}`] !== undefined ? { createdAt: over.created[`${scope}/${topic}`] } : {}),
         })),
       ),
   } as unknown as KnowledgeStore;
@@ -64,8 +68,15 @@ describe('buildKnowledgeContext', () => {
       scopeId: 'oc_1:omt_2',
     });
     expect(ctx?.notes?.slice(0, 5)).toEqual(['oc_1_omt_2/topic-00', 'oc_1_omt_2/topic-01', 'oc_1/group-00', 'oc_1/group-01', 'oc_1/group-02']);
-    expect(ctx?.notes).toHaveLength(60);
-    expect(ctx?.truncated).toBe(true);
+    expect(ctx?.notes).toHaveLength(70);
+    expect(ctx?.truncated).toBeUndefined();
+    const more = await buildKnowledgeContext({
+      store: fakeStore({ notes: { external: many('ext', 100), oc_1: many('group', 30), oc_1_omt_2: many('topic', 2) } }),
+      scopeId: 'oc_1:omt_2',
+    });
+    expect(more?.notes).toHaveLength(120);
+    expect(more?.notes?.filter((name) => name.startsWith('external/'))).toHaveLength(88);
+    expect(more?.truncated).toBe(true);
   });
 
   it("lists the chat's other topics' notes after this topic's and the chat's own", async () => {
@@ -83,24 +94,56 @@ describe('buildKnowledgeContext', () => {
     expect(chat?.notes?.slice(0, 4)).toEqual(['oc_1/group', 'oc_1_omt_1/first', 'oc_1_omt_2/mine', 'oc_1_omt_3/third']);
   });
 
-  it('orders each part of the index by how often its notes were read', async () => {
+  it('orders own and external notes by how often they were read, ties keeping their order', async () => {
     const store = fakeStore({
       notes: { oc_1: ['a', 'b'], oc_1_omt_1: ['x'], oc_1_omt_2: ['y'], external: ['e1', 'e2', 'e3'] },
       rank: { 'oc_1/b': 3, 'oc_1_omt_2/y': 5, 'external/e3': 9, 'external/e2': 1 },
     });
     const ctx = await buildKnowledgeContext({ store, scopeId: 'oc_1' });
-    expect(ctx?.notes).toEqual(['oc_1/b', 'oc_1/a', 'oc_1_omt_2/y', 'oc_1_omt_1/x', 'external/e3', 'external/e2', 'external/e1']);
+    expect(ctx?.notes).toEqual(['oc_1_omt_2/y', 'oc_1/b', 'oc_1/a', 'oc_1_omt_1/x', 'external/e3', 'external/e2', 'external/e1']);
   });
 
-  it('keeps a share of the index for external notes however many own notes there are', () => {
+  it('keeps shares for notes of the last 7 days and for the least read, whether read or not', async () => {
+    const now = Date.UTC(2026, 10, 1);
+    const day = 86_400_000;
+    const many = (prefix: string, count: number) => Array.from({ length: count }, (_, i) => `${prefix}-${String(i).padStart(2, '0')}`);
+    const store = fakeStore({
+      notes: { oc_1: [...many('old', 60), 'fresh-a', 'fresh-b'], external: [...many('ext', 60), 'fresh-c'] },
+      rank: Object.fromEntries([
+        ...many('old', 60).map((topic, i) => [`oc_1/${topic}`, 100 - i]),
+        ...many('ext', 60).map((topic, i) => [`external/${topic}`, 100 - i]),
+      ]),
+      created: { 'oc_1/fresh-a': now - day, 'oc_1/fresh-b': now - 3 * day, 'external/fresh-c': now - 2 * day, 'oc_1/old-00': now - 8 * day },
+    });
+    const ctx = await buildKnowledgeContext({ store, scopeId: 'oc_1', now });
+    expect(ctx?.notes).toHaveLength(120);
+    expect(ctx?.notes?.slice(0, 2)).toEqual(['oc_1/old-00', 'oc_1/old-01']);
+    expect(ctx?.notes?.filter((name) => name.includes('fresh'))).toEqual(['oc_1/fresh-a', 'oc_1/fresh-b', 'external/fresh-c']);
+    // The least read of the older notes keep their share too.
+    expect(ctx?.notes).toEqual(expect.arrayContaining(['oc_1/old-59', 'external/ext-59']));
+  });
+
+  it('gives own and external 40 slots, new 30 and least read 10, and lets the others fill a share that runs short', () => {
     const own = Array.from({ length: 70 }, (_, i) => `own-${i}`);
     const external = Array.from({ length: 65 }, (_, i) => `ext-${i}`);
-    const kept = pickNotes(own, external);
-    expect(kept).toHaveLength(60);
-    expect(kept.filter((name) => name.startsWith('own-'))).toHaveLength(40);
-    expect(pickNotes([], external)).toHaveLength(60);
-    expect(pickNotes(own.slice(0, 5), external.slice(0, 3))).toHaveLength(8);
-    expect(pickNotes(own, [])).toHaveLength(60);
+    const kept = pickNotes({ own, external });
+    expect(kept).toHaveLength(120);
+    expect(kept.filter((name) => name.startsWith('own-'))).toHaveLength(60);
+    expect(kept.filter((name) => name.startsWith('ext-'))).toHaveLength(60);
+    expect(pickNotes({ external })).toHaveLength(65);
+    expect(pickNotes({ own: own.slice(0, 5), external: external.slice(0, 3) })).toHaveLength(8);
+    expect(pickNotes({ own })).toHaveLength(70);
+    const newest = Array.from({ length: 50 }, (_, i) => `new-${i}`);
+    const four = pickNotes({ own, external, newest, coldest: [...own].reverse() });
+    expect(four).toHaveLength(120);
+    expect(four.filter((name) => name.startsWith('new-'))).toHaveLength(30);
+    expect(four).toEqual(expect.arrayContaining(['own-69', 'own-60', 'new-0', 'new-29']));
+    // Listed own then external, in their order, whichever share took them.
+    expect(four.slice(0, 2)).toEqual(['own-0', 'own-1']);
+    // A new note that is also among the most read is listed once, and its own share takes the next.
+    const shared = pickNotes({ own: own.slice(0, 45), newest: [own[0]!] });
+    expect(shared).toHaveLength(45);
+    expect(new Set(shared).size).toBe(45);
   });
 
   it('leaves out the skills the agent CLI already lists on its own', async () => {
