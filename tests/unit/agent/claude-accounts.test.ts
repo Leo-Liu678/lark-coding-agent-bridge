@@ -1153,16 +1153,28 @@ describe('pausing an account', () => {
     expect(pausedNote(pool)).toBeUndefined();
   });
 
-  it('resumes on request, and never pauses the CLI login', async () => {
+  it('resumes on request', async () => {
     const { pool, paths } = await poolWith(['b']);
     await updateAccount(paths, 'b', { pausedUntil: NOW + HOUR });
     await updateAccount(paths, 'b', { pausedUntil: null });
     await pool.refresh();
     expect(readAccountsConfig(paths).accounts[1]).toEqual({ id: 'b', label: 'b-name' });
     expect(pool.isPaused('b')).toBe(false);
-    await expect(updateAccount(paths, 'default', { pausedUntil: NOW + HOUR })).rejects.toThrow();
-    expect(parseAccountsConfig(JSON.stringify({ accounts: [{ id: 'default', pausedUntil: NOW + HOUR }] })).accounts).toEqual([
-      { id: 'default' },
+  });
+
+  it('pauses the CLI login too, but never the last account in rotation', async () => {
+    const { pool, paths } = await poolWith(['b']);
+    const later = Date.now() + 24 * HOUR;
+    await updateAccount(paths, 'default', { pausedUntil: later });
+    await pool.refresh();
+    expect(readAccountsConfig(paths).accounts[0]).toEqual({ id: 'default', pausedUntil: later });
+    expect(pool.accounts().map((a) => a.id)).toEqual(['b']);
+    expect(pool.pick()?.id).toBe('b');
+    // The lone backup still reads and reports as an account of its own, not the CLI login.
+    expect(pool.multi).toBe(true);
+    await expect(updateAccount(paths, 'b', { pausedUntil: later })).rejects.toThrow('至少要留一个没暂停的账户');
+    expect(parseAccountsConfig(JSON.stringify({ accounts: [{ id: 'default', pausedUntil: later }] })).accounts).toEqual([
+      { id: 'default', pausedUntil: later },
     ]);
   });
 

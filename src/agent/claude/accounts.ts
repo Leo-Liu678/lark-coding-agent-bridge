@@ -214,9 +214,7 @@ export function parseAccountsConfig(text: string): ClaudeAccountsConfig {
       ...(typeof label === 'string' && label.trim() ? { label: label.trim() } : {}),
       ...(Object.keys(own).length > 0 ? { lines: own } : {}),
       ...(raised ? { boost: raised } : {}),
-      ...(typeof pausedUntil === 'number' && Number.isFinite(pausedUntil) && id !== DEFAULT_ACCOUNT_ID
-        ? { pausedUntil }
-        : {}),
+      ...(typeof pausedUntil === 'number' && Number.isFinite(pausedUntil) ? { pausedUntil } : {}),
     });
   }
   if (!seen.has(DEFAULT_ACCOUNT_ID)) accounts.unshift({ id: DEFAULT_ACCOUNT_ID });
@@ -344,9 +342,12 @@ function applyAccountChanges(config: ClaudeAccountsConfig, id: string, changes: 
   if (changes.pausedUntil === null) {
     delete entry.pausedUntil;
   } else if (changes.pausedUntil !== undefined) {
-    // The CLI's own login stays as the account of last resort.
-    if (id === DEFAULT_ACCOUNT_ID) throw new Error('default 是 CLI 自己的登录，不能暂停');
     if (!Number.isFinite(changes.pausedUntil)) throw new Error(`暂停截止时间无效：${changes.pausedUntil}`);
+    // Some account has to stay in rotation, or every run would fail to start.
+    const now = Date.now();
+    if (!config.accounts.some((a) => a.id !== id && !isPausedEntry(a, now))) {
+      throw new Error('至少要留一个没暂停的账户');
+    }
     entry.pausedUntil = changes.pausedUntil;
   }
 }
@@ -470,9 +471,14 @@ export class ClaudeAccountPool {
     return entry !== undefined && isPausedEntry(entry, now);
   }
 
-  /** More than one account to choose from. */
+  /**
+   * Runs go through account tokens rather than the CLI's own login alone:
+   * more than one account to choose from, or the CLI login paused so the one
+   * left is a backup.
+   */
   get multi(): boolean {
-    return this.accounts().length > 1;
+    const accounts = this.accounts();
+    return accounts.length > 1 || (accounts.length === 1 && accounts[0]!.id !== DEFAULT_ACCOUNT_ID);
   }
 
   /**
