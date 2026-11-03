@@ -212,6 +212,50 @@ describe('signed card callback dispatch', () => {
     expect(queued[0]?.threadId).toBe('th_topic');
   });
 
+  it('stops the carrier topic of a DM card (/new-topic threads in p2p)', async () => {
+    const h = await createHarness({ chatMode: 'p2p' });
+    h.channel.rawThreadIds.set('om_card', 'th_topic');
+    const target = h.agent.run({ runId: 'run-active', prompt: 'target' }) as FakeAgentRun;
+    const dmRun = h.agent.run({ runId: 'run-dm', prompt: 'dm' }) as FakeAgentRun;
+    h.activeRuns.register('oc_group:th_topic', target);
+    h.activeRuns.register('oc_group', dmRun);
+
+    await h.dispatch(
+      {
+        cmd: 'stop',
+        __bridge_cb: true,
+        bridge_token: h.token('stop', { scope: 'oc_group:th_topic', operatorOpenId: 'ou_owner' }),
+      },
+      undefined,
+      'ou_owner',
+    );
+
+    expect(target.stopped).toBe(true);
+    expect(dmRun.stopped).toBe(false);
+  });
+
+  it('forwards DM topic callbacks to the topic scope as p2p messages', async () => {
+    const h = await createHarness({ chatMode: 'p2p' });
+    h.channel.rawThreadIds.set('om_card', 'th_topic');
+    h.activeRuns.register('oc_group:th_topic', h.agent.run({ runId: 'run-active', prompt: 'running' }));
+
+    await h.dispatch(
+      {
+        __bridge_cb: true,
+        bridge_token: h.token('agent_callback', { scope: 'oc_group:th_topic', operatorOpenId: 'ou_owner' }),
+        choice: 'a',
+      },
+      undefined,
+      'ou_owner',
+    );
+
+    expect(h.pending.cancel('oc_group')).toHaveLength(0);
+    const queued = h.pending.cancel('oc_group:th_topic');
+    expect(queued).toHaveLength(1);
+    expect(queued[0]?.threadId).toBe('th_topic');
+    expect(queued[0]?.chatType).toBe('p2p');
+  });
+
   it('rejects bridge callbacks when callback auth is unavailable', async () => {
     const h = await createHarness({ callbackAuth: false });
     const activeRun = h.agent.run({ runId: 'run-active', prompt: 'running' }) as FakeAgentRun;

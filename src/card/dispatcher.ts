@@ -80,10 +80,10 @@ export async function handleCardAction(deps: CardDispatchDeps): Promise<void> {
   // session — look up the carrier message (the card lives on it) once.
   // Done before the access check so we know the chat mode (p2p vs group)
   // and can skip the chat allowlist for DMs.
-  const { scope, threadId, mode } = await resolveScope(deps);
+  const { scope, threadId, mode, isP2p } = await resolveScope(deps);
 
   const accessDecision =
-    mode === 'p2p'
+    isP2p
       ? canUseDm(deps.controls.profileConfig, deps.controls, operatorId)
       : canUseGroup(deps.controls.profileConfig, deps.controls, chatId, operatorId);
   if (!accessDecision.ok) {
@@ -108,7 +108,7 @@ export async function handleCardAction(deps: CardDispatchDeps): Promise<void> {
       });
       return;
     }
-    forwardToAgent(deps, click, undefined, scope, threadId, mode);
+    forwardToAgent(deps, click, undefined, scope, threadId, isP2p);
     return;
   }
 
@@ -174,7 +174,7 @@ export async function handleCardAction(deps: CardDispatchDeps): Promise<void> {
   // as a follow-up message, with full context of what it sent.
   if (BRIDGE_CALLBACK_MARKER in payload) {
     if (!verifyBridgeToken(deps, payload, scope, 'agent_callback')) return;
-    forwardToAgent(deps, payload, formValue, scope, threadId, mode);
+    forwardToAgent(deps, payload, formValue, scope, threadId, isP2p);
     return;
   }
 
@@ -183,22 +183,26 @@ export async function handleCardAction(deps: CardDispatchDeps): Promise<void> {
 
 async function resolveScope(
   deps: CardDispatchDeps,
-): Promise<{ scope: string; threadId: string | undefined; mode: 'p2p' | 'group' | 'topic' }> {
+): Promise<{
+  scope: string;
+  threadId: string | undefined;
+  mode: 'p2p' | 'group' | 'topic';
+  isP2p: boolean;
+}> {
   const chatId = deps.evt.chatId;
   const mode = await deps.chatModeCache.resolve(deps.channel, chatId);
-  if (mode === 'p2p') {
-    return { scope: chatId, threadId: undefined, mode };
-  }
+  const isP2p = mode === 'p2p';
   // Match message intake: a carrier thread_id is stronger than cached chat
-  // mode (groups converted to topics can still resolve as ordinary groups).
-  // One API call per click; could cache by messageId if it ever becomes hot.
+  // mode (groups converted to topics can still resolve as ordinary groups,
+  // and DMs have topics too — /new-topic opens them). One API call per
+  // click; could cache by messageId if it ever becomes hot.
   const threadId = await lookupMessageThreadId(deps.channel, deps.evt.messageId);
   if (!threadId) {
     // Fall back to plain chatId. Better to land in the chat's "default"
     // scope than fail the click silently.
-    return { scope: chatId, threadId: undefined, mode };
+    return { scope: chatId, threadId: undefined, mode, isP2p };
   }
-  return { scope: `${chatId}:${threadId}`, threadId, mode: 'topic' };
+  return { scope: `${chatId}:${threadId}`, threadId, mode: 'topic', isP2p };
 }
 
 function forwardToAgent(
@@ -207,7 +211,7 @@ function forwardToAgent(
   formValue: Record<string, unknown> | undefined,
   scope: string,
   threadId: string | undefined,
-  mode: 'p2p' | 'group' | 'topic',
+  isP2p: boolean,
 ): void {
   // Strip the marker so the agent only sees the meaningful fields it set.
   const {
@@ -223,7 +227,7 @@ function forwardToAgent(
   const synthetic: NormalizedMessage = {
     messageId: deps.evt.messageId,
     chatId: deps.evt.chatId,
-    chatType: mode === 'p2p' ? 'p2p' : 'group',
+    chatType: isP2p ? 'p2p' : 'group',
     threadId,
     senderId: deps.evt.operator.openId,
     senderName: deps.evt.operator.name,
