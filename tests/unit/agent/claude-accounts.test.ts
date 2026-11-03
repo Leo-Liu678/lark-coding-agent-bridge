@@ -25,6 +25,7 @@ import {
   switchRefusal,
   STICKY_MARGIN,
   switchScore,
+  expiringFirstNote,
   switchToAccount,
   GRACE_LINE,
   reorderAccounts,
@@ -219,12 +220,12 @@ describe('account table and switching (/accounts)', () => {
     expect(formatDaysHours(5 * HOUR)).toBe('0d5h');
   });
 
-  it('scores weekly room, weekly room about to reset, and 5-hour room; an account that never ran counts half full', () => {
+  it('scores the weekly reset first, then weekly room and 5-hour room; an account that never ran counts half full', () => {
     const view = (five: number, week: number, weekResetIn?: number) => ({
       five_hour: { usedPercent: five, line: 80 },
       seven_day: { usedPercent: week, line: 90, ...(weekResetIn !== undefined ? { resetsInMs: weekResetIn } : {}) },
     });
-    // 0.30 × 0.8 + 0.45 × 0.8 × 0.5 + 0.25 × 0.5
+    // 0.60 × 0.5 × 1 + 0.15 × 0.8 + 0.25 × 0.5
     expect(switchScore(view(40, 18, 3.5 * DAY), true)).toBeCloseTo(0.545);
     expect(switchScore(view(0, 10, 6 * DAY), true)).toBeGreaterThan(switchScore(view(0, 86, 6 * DAY), true));
     // Same usage: the week that resets sooner wins.
@@ -235,9 +236,28 @@ describe('account table and switching (/accounts)', () => {
     expect(switchScore(view(0, 90, HOUR), true)).toBe(0);
     expect(switchScore(view(80, 0, HOUR), true)).toBe(0);
     expect(switchScore(view(0, 89, HOUR), true)).toBeGreaterThan(0.25);
-    expect(switchScore(view(0, 0), false)).toBeCloseTo(0.275);
+    expect(switchScore(view(0, 0), false)).toBeCloseTo(0.2);
     // Weekly room about to be lost outweighs a little more room that keeps for days.
     expect(switchScore(view(0, 40, 12 * HOUR), true)).toBeGreaterThan(switchScore(view(0, 20, 6 * DAY), true));
+    // A few points left before the line are not worth a move for the near reset alone.
+    expect(switchScore(view(0, 88, 12 * HOUR), true)).toBeLessThan(switchScore(view(0, 70, 3 * DAY), true));
+  });
+
+  it('spends the week that resets first, however much room the later ones have (2026-11-03)', () => {
+    const view = (five: [number, number], week: [number, number], weekResetIn: number) => ({
+      five_hour: { usedPercent: five[0], line: five[1] },
+      seven_day: { usedPercent: week[0], line: week[1], resetsInMs: weekResetIn },
+    });
+    // /accounts that day: shilong.wang 6% of 98 resetting in 6d13h scored 54,
+    // 汤欢 51% of 90 resetting in 2d20h only 50 — her 39 points would be lost.
+    const shilong = switchScore(view([8, 98], [6, 98], 6 * DAY + 13 * HOUR), true);
+    const tanghuan = switchScore(view([0, 60], [51, 90], 2 * DAY + 20 * HOUR), true);
+    const yuou = switchScore(view([0, 80], [30, 90], 4 * DAY + 23 * HOUR), true);
+    expect(tanghuan).toBeGreaterThan(yuou);
+    expect(yuou).toBeGreaterThan(shilong);
+    expect(tanghuan - shilong).toBeGreaterThan(STICKY_MARGIN);
+    // Less room, but it runs out first: still first.
+    expect(switchScore(view([0, 98], [70, 90], 2 * DAY), true)).toBeGreaterThan(switchScore(view([0, 98], [0, 90], 6 * DAY), true));
   });
 
   it('lists every account in one table, one column per figure', async () => {
@@ -246,14 +266,38 @@ describe('account table and switching (/accounts)', () => {
       { kind: 'five_hour', usedPercent: 46, resetsAt: NOW + 4 * HOUR + 32 * MIN },
       { kind: 'seven_day', usedPercent: 55, resetsAt: NOW + 2 * DAY + 22 * HOUR },
     ] }));
-    pool.observe('b', limit({ windows: [{ kind: 'seven_day', usedPercent: 10, resetsAt: NOW + 5 * DAY }] }));
+    pool.observe('b', limit({ windows: [{ kind: 'seven_day', usedPercent: 10, resetsAt: NOW + DAY }] }));
     const rows = accountRows(pool, 'shilong.wang', NOW);
     const table = accountsTable(rows);
     expect(table.split('\n')[0]).toBe('| 账户 | 5 小时用量 / 重置 | 本周用量 / 重置 | 切换线（5 小时 / 本周） | 得分 | 状态 |');
-    expect(table).toContain('| **shilong.wang**（主，default） | 46% / 4h32m | 55% / 2d22h | 98% / 98% | 38 | 可用 |');
+    expect(table).toContain('| **shilong.wang**（主，default） | 46% / 4h32m | 55% / 2d22h | 98% / 98% | 55 | 可用 |');
     // The best score takes the next run, main account or not.
-    expect(table).toContain('| ✅ **b-name**（备 1，b） | — | 10% / 5d0h | 98% / 98% | 63 | 使用中 |');
-    expect(table).toContain('| **c-name**（备 2，c） | — | — | 98% / 98% | 28 | 还没运行过 |');
+    expect(table).toContain('| ✅ **b-name**（备 1，b） | — | 10% / 1d0h | 98% / 98% | 90 | 使用中 |');
+    expect(table).toContain('| **c-name**（备 2，c） | — | — | 98% / 98% | 20 | 还没运行过 |');
+    expect(expiringFirstNote(rows)).toBe('⏳ 先到期先用：**b-name** 本周 1d0h 后重置，离切换线还有 88 个百分点，新任务先用它。');
+  });
+
+  it('says when the week that runs out first does not take the next run', async () => {
+    const { pool } = await poolWith(['b']);
+    pool.observe('default', limit({ windows: [{ kind: 'seven_day', usedPercent: 50, resetsAt: NOW + 3 * DAY }] }));
+    // An hour sooner, but not ahead by more than the margin: the main account keeps the run.
+    pool.observe('b', limit({ windows: [{ kind: 'seven_day', usedPercent: 40, resetsAt: NOW + 3 * DAY - HOUR }] }));
+    const rows = accountRows(pool, 'shilong.wang', NOW);
+    expect(rows.find((row) => row.next)?.id).toBe('default');
+    expect(expiringFirstNote(rows)).toBe(
+      '⏳ 先到期先用：**b-name** 本周 2d23h 后重置，离切换线还有 58 个百分点；得分领先不到 5 分，换号要整段对话重读一遍，不值得，新任务暂时还用 **shilong.wang**。',
+    );
+    pool.observe('default', limit({ windows: [{ kind: 'seven_day', usedPercent: 50, resetsAt: NOW + 6 * DAY }] }));
+    // 6 points left, a day before its reset: still worth using first.
+    pool.observe('b', limit({ windows: [{ kind: 'seven_day', usedPercent: 92, resetsAt: NOW + 30 * HOUR }] }));
+    expect(expiringFirstNote(accountRows(pool, 'shilong.wang', NOW))).toBe(
+      '⏳ 先到期先用：**b-name** 本周 1d6h 后重置，离切换线还有 6 个百分点，新任务先用它。',
+    );
+    // 1 point left: not worth a move.
+    pool.observe('b', limit({ windows: [{ kind: 'seven_day', usedPercent: 97, resetsAt: NOW + 30 * HOUR }] }));
+    expect(expiringFirstNote(accountRows(pool, 'shilong.wang', NOW))).toBe(
+      '⏳ 先到期先用：**b-name** 本周 1d6h 后重置，离切换线还有 1 个百分点；只剩这点不值得专门换号，新任务暂时还用 **shilong.wang**。',
+    );
   });
 
   it('switches without a name to the best-scoring account with room, never the current one', async () => {
@@ -1303,9 +1347,10 @@ describe('a per-run line cap (课堂精练)', () => {
     expect(card).toContain('本周用量到了 80% 的切换线');
     // A borrowed account: the capped run does not make it the main one…
     expect(pool.accounts()[0]!.id).toBe('backup');
-    // …chats still go by score, and backup2 now clearly beats the main one.
-    expect(pool.score('backup2') - pool.score('backup')).toBeGreaterThan(STICKY_MARGIN);
-    expect(pool.pick()?.id).toBe('backup2');
+    // …chats still go by score: both weeks reset together, so nothing is lost
+    // either way and the main one keeps them (a move re-reads the conversation).
+    expect(pool.score('backup2') - pool.score('backup')).toBeLessThanOrEqual(STICKY_MARGIN);
+    expect(pool.pick()?.id).toBe('backup');
   });
 
   it('with every other account at the cap, finishes its turn where it is', async () => {
@@ -1462,10 +1507,12 @@ describe('a window about to reset opens its switch line', () => {
     expect(pool.isBoosted('backup4', NOW)).toBe(false);
     const rows = accountRows(pool, 'yu.ou', NOW);
     const table = accountsTable(rows);
-    // Was 0 (past its line): now the best, far enough ahead of the main account to take the next run.
-    expect(table).toContain('| ✅ **焦银玲**（备 2，backup4） | 61% / 0h5m | 35% / 5d10h | 60→98% / 90% | 47 | 使用中（5 小时窗口临近重置，切换线放宽） |');
-    expect(table).toContain('| **shilong.wang**（主，backup） | 21% / 1h55m | 64% / 3d14h | 98% / 98% | 38 | 可用 |');
-    expect(pool.pick()?.id).toBe('backup4');
+    // Was 0 (past its line): it scores again, its 5-hour room nearly full.
+    expect(table).toContain('| **焦银玲**（备 2，backup4） | 61% / 0h5m | 35% / 5d10h | 60→98% / 90% | 45 | 可用（5 小时窗口临近重置，切换线放宽） |');
+    expect(table).toContain('| **shilong.wang**（主，backup） | 21% / 1h55m | 64% / 3d14h | 98% / 98% | 54 | 可用 |');
+    // yu.ou's week runs out first (2 days, 11 points left): it takes the next run.
+    expect(table).toContain('| ✅ **yu.ou**（备 3，default） | — | 79% / 2d0h | 80% / 90% | 70 | 使用中 |');
+    expect(pool.pick()?.id).toBe('default');
     expect(switchRefusal(pool, findAccountRow(rows, '焦银玲')!)).toBeUndefined();
   });
 

@@ -861,7 +861,13 @@ function formatClock(at: number): string {
 // ─── Account table and switching (`/accounts`, `claude-account switch`) ─────
 
 /** Weights of the switch score's three terms (see {@link switchScore}). */
-export const SWITCH_SCORE_WEIGHTS = { weekRoom: 0.3, weekExpiring: 0.45, fiveHourRoom: 0.25 } as const;
+export const SWITCH_SCORE_WEIGHTS = { weekExpiring: 0.6, weekRoom: 0.15, fiveHourRoom: 0.25 } as const;
+/**
+ * Weekly room (as a share of the line) below which an account's coming reset
+ * counts for less: a few points left are not worth a move (every move re-reads
+ * the conversation uncached) — they are used once the account comes up anyway.
+ */
+export const WORTH_MOVING_ROOM = 0.1;
 /**
  * How much better than the main account another has to score to take the next
  * run from it. Moving costs a full uncached read of the conversation (the
@@ -908,17 +914,24 @@ export interface AccountRow {
 }
 
 /**
- * How good a switch target an account is, 0–1, built to even out the
- * accounts' weekly use:
+ * How good a switch target an account is, 0–1, built so that no weekly quota
+ * is left unused at a reset — the weekly room that expires first is spent
+ * first (owner's ask, 2026-11-03: an account two days from its reset with
+ * half its week left lost to one six days out with more room):
  *
- *   0.30 × weekRoom + 0.45 × weekRoom × weekResetSoon + 0.25 × fiveHourRoom
+ *   0.60 × weekResetSoon × worth + 0.15 × weekRoom + 0.25 × fiveHourRoom
  *
- * - weekRoom = 1 − weekly used ÷ weekly line: the week is the scarce budget,
- *   so the account with the most of it left goes first;
- * - weekRoom × weekResetSoon (1 − time to the weekly reset ÷ 7 days): room
- *   about to be lost at the reset — spend it first, the heaviest term since
- *   weekly room left at the reset is gone for good; multiplied so an account
- *   with nothing left gains nothing from a near reset;
+ * - weekResetSoon = 1 − time to the weekly reset ÷ 7 days, the heaviest term:
+ *   room left at a reset is gone for good, while room that resets later can
+ *   still be used after; so whichever week ends first goes first (earliest
+ *   deadline first, the order that leaves the least unused whatever the
+ *   demand), as long as it has room. How much room it has does not change
+ *   that order — the accounts that reset later get their turn afterwards;
+ * - worth = min(1, weekRoom ÷ {@link WORTH_MOVING_ROOM}): with less than a
+ *   tenth of its line left, an account's near reset counts for less, the few
+ *   points are not worth a move;
+ * - weekRoom = 1 − weekly used ÷ weekly line: of weeks ending about the same
+ *   time, the one with more left;
  * - fiveHourRoom = 1 − 5-hour used ÷ 5-hour line: don't move to an account
  *   that is about to hit its 5-hour line and move again. Near the 5-hour
  *   reset ({@link graceMs}) it rises towards 1 (by 1 − time to the reset ÷
@@ -941,9 +954,10 @@ export function switchScore(windows: Record<WindowKind, AccountWindowView>, know
   };
   const weekRoom = room('seven_day');
   const fiveHourRoom = room('five_hour');
+  const worth = Math.min(1, weekRoom / WORTH_MOVING_ROOM);
   return (
+    SWITCH_SCORE_WEIGHTS.weekExpiring * soon('seven_day', WEEK_MS) * worth +
     SWITCH_SCORE_WEIGHTS.weekRoom * weekRoom +
-    SWITCH_SCORE_WEIGHTS.weekExpiring * weekRoom * soon('seven_day', WEEK_MS) +
     SWITCH_SCORE_WEIGHTS.fiveHourRoom * (fiveHourRoom + (1 - fiveHourRoom) * soon('five_hour', graceMs('five_hour', now)))
   );
 }
@@ -1035,6 +1049,31 @@ export function accountsTable(rows: AccountRow[]): string {
     );
   }
   return out.join('\n');
+}
+
+/**
+ * `⏳ 先到期先用：**汤欢** 本周 2d20h 后重置，离切换线还有 39 个百分点，新任务先用它。` —
+ * the ready account whose weekly room runs out first, so `/accounts` says why
+ * it leads, or why it does not take the next run. Undefined when no ready
+ * account has a known weekly reset.
+ */
+export function expiringFirstNote(rows: AccountRow[]): string | undefined {
+  const left = (row: AccountRow): number => row.windows.seven_day.line - (row.windows.seven_day.usedPercent ?? 0);
+  const first = rows
+    .filter((row) => row.ready && row.known && row.windows.seven_day.resetsInMs !== undefined)
+    .sort((a, b) => a.windows.seven_day.resetsInMs! - b.windows.seven_day.resetsInMs! || a.index - b.index)[0];
+  if (!first) return undefined;
+  const head = `⏳ 先到期先用：**${first.name}** 本周 ${formatDaysHours(first.windows.seven_day.resetsInMs!)} 后重置，离切换线还有 ${Math.round(left(first))} 个百分点`;
+  if (first.next) return `${head}，新任务先用它。`;
+  const using = rows.find((row) => row.next);
+  if (!using) return `${head}。`;
+  const why =
+    left(first) / first.windows.seven_day.line < WORTH_MOVING_ROOM
+      ? '只剩这点不值得专门换号'
+      : first.score > using.score
+        ? `得分领先不到 ${Math.round(STICKY_MARGIN * 100)} 分，换号要整段对话重读一遍，不值得`
+        : '它的 5 小时窗口余量不多，得分没拉开';
+  return `${head}；${why}，新任务暂时还用 **${using.name}**。`;
 }
 
 /**
