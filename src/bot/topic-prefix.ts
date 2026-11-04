@@ -1,4 +1,5 @@
 import type { LarkChannel, NormalizedMessage } from '@larksuite/channel';
+import type { AutoTopicPreference } from '../config/schema';
 import { log } from '../core/logger';
 import { lookupMessageThreadId } from './thread-id';
 
@@ -21,7 +22,7 @@ export const NEW_TOPIC_COMMAND = 'new-topic';
 export interface TopicPrefix {
   /** `new-topic`, or the rung label as configured. */
   label: string;
-  kind: 'new-topic' | 'effort';
+  kind: 'new-topic' | 'effort' | 'auto';
   /** The text after the prefix. */
   rest: string;
 }
@@ -46,6 +47,19 @@ export function matchTopicPrefix(
   return label ? { label, kind: 'effort', rest } : undefined;
 }
 
+/** The prefix an 自动开话题 message runs under: no prefix, the text as sent. */
+export function autoTopicPrefix(text: string): TopicPrefix {
+  return { label: 'auto', kind: 'auto', rest: text };
+}
+
+/** Whether 自动开话题 is on for `chatId`. */
+export function autoTopicEnabled(pref: boolean | AutoTopicPreference | undefined, chatId: string): boolean {
+  if (!pref) return false;
+  if (pref === true) return true;
+  if (pref.exceptChats?.includes(chatId)) return false;
+  return !pref.chats?.length || pref.chats.includes(chatId);
+}
+
 /** The line the bot opens the topic with. */
 export function topicOpenedText(prefix: TopicPrefix): string {
   return prefix.kind === 'effort' ? `🧵 已开话题，按「/${prefix.label}」档在这里处理。` : '🧵 已开话题，在这里处理。';
@@ -53,7 +67,7 @@ export function topicOpenedText(prefix: TopicPrefix): string {
 
 /** The message text the topic's run gets: `/new-topic` taken off, a rung prefix kept. */
 export function topicRunText(text: string, prefix: TopicPrefix): string {
-  if (prefix.kind === 'effort') return text;
+  if (prefix.kind !== 'new-topic') return text;
   return prefix.rest || '请处理我引用的消息或发来的附件。';
 }
 

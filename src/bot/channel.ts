@@ -154,6 +154,9 @@ import {
   isSpawnedTopic,
   markSpawnedTopic,
   matchTopicPrefix,
+  autoTopicEnabled,
+  autoTopicPrefix,
+  type TopicPrefix,
   openTopicUnder,
   topicOpenedText,
   topicRunText,
@@ -1422,10 +1425,33 @@ async function intakeMessage(deps: IntakeDeps): Promise<void> {
   // 前缀开话题: `/xhigh 帮我…` outside a topic runs in a topic of its own,
   // opened under the message itself — not in this conversation, and not as a
   // supplement to a run going on in it.
-  const routed =
-    resolvedMode === 'topic' || deps.recalled?.has(emsg.messageId)
-      ? undefined
-      : await routeTopicPrefix(channel, controls, emsg, scope);
+  const stays = resolvedMode === 'topic' || Boolean(deps.recalled?.has(emsg.messageId));
+  let routed = stays ? undefined : await routeTopicPrefix(channel, controls, emsg, scope);
+  // 自动开话题: any other message from a person gets a topic too — unless it
+  // follows up on a run going on right here, which it joins instead.
+  if (
+    !routed &&
+    !stays &&
+    !emsg.threadId &&
+    senderTypeOf(emsg) !== 'bot' &&
+    autoTopicEnabled(controls.profileConfig.preferences.autoTopic, emsg.chatId)
+  ) {
+    if (
+      await tryInjectSupplement({
+        channel,
+        activeRuns,
+        media,
+        controls,
+        msg: emsg,
+        scope,
+        mode: chatMode,
+        ...(deps.recalled ? { recalled: deps.recalled } : {}),
+      })
+    ) {
+      return;
+    }
+    routed = await openTopicFor(channel, emsg, scope, autoTopicPrefix(emsg.content ?? ''));
+  }
   const runMsg = routed?.msg ?? emsg;
   const runScope = routed?.scope ?? scope;
   const runMode: ChatMode = routed ? 'topic' : chatMode;
@@ -1476,6 +1502,16 @@ async function routeTopicPrefix(
     { attachments: msg.resources.length, quoted: Boolean(msg.replyToMessageId) },
   );
   if (!prefix) return undefined;
+  return openTopicFor(channel, msg, scope, prefix);
+}
+
+/** Open a topic under `msg` and hand back the message as it runs there; undefined when Feishu gives no topic back. */
+async function openTopicFor(
+  channel: LarkChannel,
+  msg: NormalizedMessage,
+  scope: string,
+  prefix: TopicPrefix,
+): Promise<{ msg: NormalizedMessage; scope: string } | undefined> {
   const threadId = await openTopicUnder(channel, msg, topicOpenedText(prefix));
   if (!threadId) return undefined;
   const moved = markSpawnedTopic({ ...msg, threadId, content: topicRunText(msg.content ?? '', prefix) });

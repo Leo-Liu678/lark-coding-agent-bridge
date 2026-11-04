@@ -11,6 +11,13 @@ export type TenantBrand = 'feishu' | 'lark';
  *   - `file`: value is at the path `id` (or `provider.path` if provider config)
  *   - `exec`: spawn `provider.command`, send JSON over stdin, read JSON from stdout
  */
+export interface AutoTopicPreference {
+  /** Only these chats; empty or absent means every chat. */
+  chats?: string[];
+  /** Never these chats. */
+  exceptChats?: string[];
+}
+
 export interface SecretRef {
   source: 'env' | 'file' | 'exec';
   provider?: string;
@@ -171,6 +178,15 @@ export interface AppPreferences {
    * sent to. Config-file only. Default on (rung names need `autoEffort`).
    */
   topicPrefix?: boolean;
+  /**
+   * 自动开话题: every message from a person outside a topic gets a topic of
+   * its own, opened under the message, as if it had opened with `/new-topic`.
+   * `true` for every chat; `{ chats }` for only those chats; `exceptChats`
+   * leaves those chats where they are. A follow-up to a run going on in the
+   * conversation (补充/追加/+, quote-reply) still folds into that run, and
+   * bots' messages stay put. Config-file only. Default off.
+   */
+  autoTopic?: boolean | AutoTopicPreference;
   /**
    * Whether to send a separate Lark COT process message before the final
    * answer. `brief` mirrors the lightweight tool/progress visibility from

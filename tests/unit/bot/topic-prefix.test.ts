@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { matchTopicPrefix, openTopicUnder, topicOpenedText, topicRunText } from '../../../src/bot/topic-prefix.js';
+import { autoTopicEnabled, autoTopicPrefix, matchTopicPrefix, openTopicUnder, topicOpenedText, topicRunText } from '../../../src/bot/topic-prefix.js';
 
 const LABELS = ['medium', 'high', 'xhigh', 'fable'];
 
@@ -71,5 +71,23 @@ describe('openTopicUnder', () => {
     const channel = { send: vi.fn(async () => Promise.reject(new Error('230002'))), fetchRawMessage } as never;
     await expect(openTopicUnder(channel, msg, '🧵', 0)).resolves.toBeUndefined();
     expect(fetchRawMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe('autoTopicEnabled', () => {
+  it('reads true, chat lists and exceptions', () => {
+    expect(autoTopicEnabled(undefined, 'oc_a')).toBe(false);
+    expect(autoTopicEnabled(false, 'oc_a')).toBe(false);
+    expect(autoTopicEnabled(true, 'oc_a')).toBe(true);
+    expect(autoTopicEnabled({}, 'oc_a')).toBe(true);
+    expect(autoTopicEnabled({ chats: ['oc_a'] }, 'oc_a')).toBe(true);
+    expect(autoTopicEnabled({ chats: ['oc_a'] }, 'oc_b')).toBe(false);
+    expect(autoTopicEnabled({ exceptChats: ['oc_a'] }, 'oc_a')).toBe(false);
+    expect(autoTopicEnabled({ exceptChats: ['oc_a'] }, 'oc_b')).toBe(true);
+  });
+
+  it('runs the text as sent', () => {
+    expect(topicRunText('看看', autoTopicPrefix('看看'))).toBe('看看');
+    expect(topicOpenedText(autoTopicPrefix('看看'))).toContain('已开话题');
   });
 });

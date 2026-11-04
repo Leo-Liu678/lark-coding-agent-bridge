@@ -203,6 +203,56 @@ describe('前缀开话题', () => {
   });
 });
 
+describe('自动开话题', () => {
+  it('opens a topic under a plain message and runs it there as sent', async () => {
+    const h = await createHarness({ chatMode: 'group', autoTopic: true, rawThreadIds: { om_auto: 'omt_auto' } });
+    await startTestBridge(h);
+
+    await h.channel.handlers.message?.(
+      message({ messageId: 'om_auto', chatType: 'p2p', mentionedBot: false, content: '密码多少' }),
+    );
+    await waitFor(() => h.agent.runOptions.length === 1);
+
+    expect(h.channel.sent[0]).toMatchObject({ options: { replyTo: 'om_auto', replyInThread: true } });
+    expect(JSON.stringify(h.channel.sent[0]?.content)).toContain('已开话题');
+    const prompt = h.agent.runOptions[0]?.prompt ?? '';
+    expect(prompt).toContain('"threadId":"omt_auto"');
+    expect(prompt).toContain('密码多少');
+  });
+
+  it('keeps a rung prefix and opens just one topic', async () => {
+    const h = await createHarness({ chatMode: 'group', autoTopic: true, rawThreadIds: { om_auto_hi: 'omt_hi' } });
+    await startTestBridge(h);
+
+    await h.channel.handlers.message?.(message({ messageId: 'om_auto_hi', content: '/high 查一下 X' }));
+    await waitFor(() => h.agent.runOptions.length === 1);
+
+    expect(h.channel.sent.filter((s) => JSON.stringify(s.content).includes('已开话题'))).toHaveLength(1);
+    expect(h.agent.runOptions[0]?.prompt ?? '').toContain('"threadId":"omt_hi"');
+  });
+
+  it('leaves messages in a topic, from bots, or in chats left out where they are', async () => {
+    const h = await createHarness({ chatMode: 'group', autoTopic: true, rawThreadIds: { om_bot: 'omt_bot' } });
+    await startTestBridge(h);
+    await h.channel.handlers.message?.(
+      message({ messageId: 'om_in', rootId: 'om_r', parentId: 'om_r', threadId: 'omt_in', content: '接着查' }),
+    );
+    await waitFor(() => h.agent.runOptions.length === 1);
+    expect(h.agent.runOptions[0]?.prompt ?? '').toContain('"threadId":"omt_in"');
+    expect(h.channel.sent.filter((s) => JSON.stringify(s.content).includes('已开话题'))).toHaveLength(0);
+
+    const h2 = await createHarness({
+      chatMode: 'group',
+      autoTopic: { exceptChats: ['oc_topic_chat'] },
+      rawThreadIds: { om_out: 'omt_out' },
+    });
+    await startTestBridge(h2);
+    await h2.channel.handlers.message?.(message({ messageId: 'om_out', content: '看看' }));
+    await waitFor(() => h2.agent.runOptions.length === 1);
+    expect(h2.agent.runOptions[0]?.prompt ?? '').not.toContain('omt_out');
+  });
+});
+
 async function createHarness(options: {
   chatMode?: 'group' | 'topic';
   quotedMessages?: Record<string, string>;
@@ -211,6 +261,7 @@ async function createHarness(options: {
   agentEvents?: AgentEvent[];
   onStream?: () => void;
   topicPrefix?: boolean;
+  autoTopic?: boolean | { chats?: string[]; exceptChats?: string[] };
 } = {}):Promise<{
   tmp: TmpProfile;
   channel: FakeLarkChannel & { handlers: MessageHandlerMap };
@@ -242,6 +293,7 @@ async function createHarness(options: {
       ...baseProfileConfig.preferences,
       autoEffort: { enabled: true },
       ...(options.topicPrefix !== undefined ? { topicPrefix: options.topicPrefix } : {}),
+      ...(options.autoTopic !== undefined ? { autoTopic: options.autoTopic } : {}),
     },
     workspaces: {
       ...baseProfileConfig.workspaces,
