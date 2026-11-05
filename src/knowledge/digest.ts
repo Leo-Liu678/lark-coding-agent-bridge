@@ -77,20 +77,33 @@ export interface DigestView {
   covered: ReadonlySet<string>;
   /** Family (`oc_xxx`, or `external`) → the layer notes its raw notes went into. */
   topicsOf: (family: string) => ReadonlySet<string>;
+  /** Raw notes folded into a layer note (`global/x`, or a part of it, `global/x-2`). */
+  sourcesOf: (layerNote: string) => readonly string[];
 }
 
 export function digestView(manifest: DigestManifest): DigestView {
   const covered = new Set<string>();
   const byFamily = new Map<string, Set<string>>();
+  const byTarget = new Map<string, Set<string>>();
   for (const [name, source] of Object.entries(manifest.sources)) {
     covered.add(name);
+    for (const target of Object.values(source.entries)) {
+      if (!target) continue;
+      let names = byTarget.get(target);
+      if (!names) byTarget.set(target, (names = new Set()));
+      names.add(name);
+    }
     const family = familyOf(name.split('/')[0] ?? '');
     let topics = byFamily.get(family);
     if (!topics) byFamily.set(family, (topics = new Set()));
     for (const target of Object.values(source.entries)) if (target) topics.add(target);
   }
   const none = new Set<string>();
-  return { covered, topicsOf: (family) => byFamily.get(family) ?? none };
+  return {
+    covered,
+    topicsOf: (family) => byFamily.get(family) ?? none,
+    sourcesOf: (layerNote) => [...(byTarget.get(layerNote.replace(/-\d+$/, '')) ?? none)],
+  };
 }
 
 /**
@@ -101,6 +114,11 @@ export class DigestManifestReader {
   private cached: { mtimeMs: number; view: DigestView } | undefined;
 
   constructor(private readonly knowledgeDir: string) {}
+
+  /** The view as last read, without touching the disk (undefined before the first read). */
+  last(): DigestView | undefined {
+    return this.cached?.view;
+  }
 
   async view(): Promise<DigestView> {
     const path = join(this.knowledgeDir, DIGEST_MANIFEST);

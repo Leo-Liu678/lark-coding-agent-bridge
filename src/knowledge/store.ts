@@ -77,6 +77,11 @@ export class KnowledgeStore {
     return this.digestReader.view();
   }
 
+  /** {@link digestView} as last read, synchronously (for rankers). */
+  cachedDigestView(): DigestView | undefined {
+    return this.digestReader?.last();
+  }
+
   /** Merge another source's skills behind this profile's own (`/skills lib`). */
   addSkillSource(source: SkillSource): void {
     this.skillSources.push(source);
