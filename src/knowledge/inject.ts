@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { basename, dirname } from 'node:path';
 import { nativeSkillDirsFor } from '../agent/native-skills';
 import type { AgentKind } from '../agent/registry';
-import { digestView, emptyManifest, familyOf, GLOBAL_EXTERNAL_SCOPE, GLOBAL_OWNER_SCOPE, GLOBAL_SCOPE } from './digest';
+import { digestView, emptyManifest, familyOf, GLOBAL_EXTERNAL_SCOPE, GLOBAL_OWNER_SCOPE, GLOBAL_SCOPE, isDigestScope } from './digest';
 import { sanitizeScopeId, type KnowledgeStore, type MemoryEntry, type NoteFile, type SkillSummary } from './store';
 
 export interface KnowledgeContext {
@@ -113,7 +113,15 @@ export async function buildKnowledgeContext(
   const createdAt = input.store.noteCreatedAt?.() ?? ((note: { createdAt?: number }) => note.createdAt);
   const born = new Map(notes.map((note) => [note, createdAt(note) ?? 0]));
   const refresh = [...notes].sort((a, b) => shown(a.name) - shown(b.name) || born.get(b)! - born.get(a)!);
-  const keptNotes = pickNotes({ own: ownNotes, global: globalNotes, external: externalNotes, refresh });
+  // A layer topic split into parts (`x`, `x-2`, …) takes one slot: picked together, listed together.
+  const partsOf = topicGroups(notes);
+  const groups = (list: NoteFile[]) => [...new Set(list.map((note) => partsOf.get(note)!))];
+  const keptNotes = pickNotes({
+    own: groups(ownNotes),
+    global: groups(globalNotes),
+    external: groups(externalNotes),
+    refresh: groups(refresh),
+  }).flat();
   const chat = [...group, ...topic];
 
   const budgeted = applyBudget(profile, chat, input.maxChars ?? DEFAULT_MAX_CHARS);
@@ -210,7 +218,27 @@ export function knowledgeStub(version: string, snapshot?: string): { unchangedSi
   return { unchangedSince: version, ...(snapshot ? { snapshot } : {}) };
 }
 
-export type NoteShares<T> = { [share in keyof typeof NOTE_SHARES]?: readonly T[] };
+/**
+ * Each note → the parts of its layer topic (`global/x`, `global/x-2`, …, in
+ * that order), one shared array per topic; a raw note is a topic of its own.
+ */
+export function topicGroups(notes: readonly NoteFile[]): Map<NoteFile, NoteFile[]> {
+  const byTopic = new Map<string, NoteFile[]>();
+  const out = new Map<NoteFile, NoteFile[]>();
+  const part = (name: string) => Number(/-(\d+)$/.exec(name)?.[1] ?? 1);
+  for (const note of notes) {
+    const scope = note.name.split('/')[0] ?? '';
+    const key = isDigestScope(scope) ? note.name.replace(/-\d+$/, '') : `\0${note.name}`;
+    let parts = byTopic.get(key);
+    if (!parts) byTopic.set(key, (parts = []));
+    if (!parts.includes(note)) parts.push(note);
+    out.set(note, parts);
+  }
+  for (const parts of byTopic.values()) parts.sort((a, b) => part(a.name) - part(b.name));
+  return out;
+}
+
+export type NoteShares<T> ={ [share in keyof typeof NOTE_SHARES]?: readonly T[] };
 
 /**
  * The notes that make the index, {@link MAX_NOTES} at most: each share's

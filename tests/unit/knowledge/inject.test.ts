@@ -190,6 +190,30 @@ describe('buildKnowledgeContext', () => {
     expect(owner?.notes).toEqual(['global/deploy', 'global-owner/hosts', 'global/build', 'global-external/feishu', 'external/au-timezone']);
   });
 
+  it('gives a layer topic split into parts one slot, its parts listed together and in order', async () => {
+    const many = (prefix: string, count: number) => Array.from({ length: count }, (_, i) => `${prefix}-${String(i).padStart(2, '0')}t`);
+    const store = fakeStore({
+      notes: {
+        // charger is read most but its parts least; ops-2 alone is in the most read.
+        global: ['charger-3', 'charger', ...many('g', 150), 'charger-2', 'ops-2', 'ops'],
+        oc_1: ['raw-2', 'raw'],
+        external: [],
+      },
+      rank: { 'global/charger': 99, 'global/ops-2': 98 },
+    });
+    const ctx = await buildKnowledgeContext({ store, scopeId: 'oc_1' });
+    const notes = ctx?.notes ?? [];
+    // Raw notes are never grouped; the parts of a topic sit together, part 1 first.
+    expect(notes.slice(0, 2)).toEqual(['oc_1/raw-2', 'oc_1/raw']);
+    const at = notes.indexOf('global/charger');
+    expect(notes.slice(at, at + 3)).toEqual(['global/charger', 'global/charger-2', 'global/charger-3']);
+    const ops = notes.indexOf('global/ops');
+    expect(notes.slice(ops, ops + 2)).toEqual(['global/ops', 'global/ops-2']);
+    // 120 topics: 2 raw + charger + ops + 116 others, listed in 123 names.
+    expect(notes).toHaveLength(123);
+    expect(ctx?.truncated).toBe(true);
+  });
+
   it('names the notes a block lists, by name or by path', () => {
     expect(listedNoteNames({ notesDir: NOTES, notes: ['oc_1/a', 'external/b'] })).toEqual(['oc_1/a', 'external/b']);
     expect(listedNoteNames({ notes: ['/x/oc_1/a.md', '/y/external/b.md'] })).toEqual(['oc_1/a', 'external/b']);
