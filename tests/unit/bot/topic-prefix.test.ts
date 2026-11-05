@@ -52,7 +52,7 @@ describe('openTopicUnder', () => {
     const send = vi.fn(async () => ({ messageId: 'om_reply' }));
     const fetchRawMessage = vi.fn(async () => [{ message_id: 'om_1', thread_id: 'omt_1' }]);
     const channel = { send, fetchRawMessage } as never;
-    await expect(openTopicUnder(channel, msg, '🧵', 0)).resolves.toBe('omt_1');
+    await expect(openTopicUnder(channel, msg, '🧵', 0)).resolves.toEqual({ threadId: 'omt_1', openerId: 'om_reply' });
     expect(send).toHaveBeenCalledWith('oc_1', { text: '🧵' }, { replyTo: 'om_1', replyInThread: true });
   });
 
@@ -62,8 +62,25 @@ describe('openTopicUnder', () => {
       .mockResolvedValueOnce([{ message_id: 'om_1' }])
       .mockResolvedValueOnce([{ message_id: 'om_1', thread_id: 'omt_late' }]);
     const channel = { send: vi.fn(async () => ({ messageId: 'om_reply' })), fetchRawMessage } as never;
-    await expect(openTopicUnder(channel, msg, '🧵', 1)).resolves.toBe('omt_late');
+    await expect(openTopicUnder(channel, msg, '🧵', 1)).resolves.toEqual({ threadId: 'omt_late', openerId: 'om_reply' });
     expect(fetchRawMessage).toHaveBeenCalledTimes(2);
+  });
+
+  it('opens with a card when given one', async () => {
+    const send = vi.fn(async () => ({ messageId: 'om_card' }));
+    const fetchRawMessage = vi.fn(async () => [{ message_id: 'om_1', thread_id: 'omt_c' }]);
+    const card = { schema: '2.0' };
+    await expect(openTopicUnder({ send, fetchRawMessage } as never, msg, { card }, 0)).resolves.toEqual({
+      threadId: 'omt_c',
+      openerId: 'om_card',
+    });
+    expect(send).toHaveBeenCalledWith('oc_1', { card }, { replyTo: 'om_1', replyInThread: true });
+  });
+
+  it('hands back the opener without a topic when Feishu gives none', async () => {
+    const fetchRawMessage = vi.fn(async () => [{ message_id: 'om_1' }]);
+    const channel = { send: vi.fn(async () => ({ messageId: 'om_reply' })), fetchRawMessage } as never;
+    await expect(openTopicUnder(channel, msg, '🧵', 0)).resolves.toEqual({ threadId: undefined, openerId: 'om_reply' });
   });
 
   it('gives up without a topic when the reply fails', async () => {

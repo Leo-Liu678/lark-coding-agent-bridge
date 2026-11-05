@@ -34,6 +34,7 @@ interface MessageHandlerMap {
 interface FakeLarkChannel {
   sent: Array<{ chatId: string; content: unknown; options: unknown }>;
   streams: Array<{ chatId: string; options: unknown }>;
+  cardUpdates: Array<{ messageId: string; card: unknown }>;
   botIdentity: { openId: string; name: string };
   rawClient: {
     request: ReturnType<typeof vi.fn>;
@@ -60,6 +61,7 @@ interface FakeLarkChannel {
   getConnectionStatus(): { state: 'connected'; reconnectAttempts: number };
   send(chatId: string, content: unknown, options?: unknown): Promise<{ messageId: string }>;
   stream(chatId: string, input: unknown, options?: unknown): Promise<{ messageId: string }>;
+  updateCard(messageId: string, card: unknown): Promise<void>;
 }
 
 const cleanups: Array<() => Promise<void>> = [];
@@ -75,6 +77,7 @@ describe('前缀开话题', () => {
   it('opens a topic under a prefixed message and runs it there', async () => {
     const h = await createHarness({
       chatMode: 'group',
+      messageReply: 'card',
       rawThreadIds: { om_prefixed: 'omt_new' },
       agentEvents: [{ type: 'system', sessionId: 'sess-1' }, { type: 'done', terminationReason: 'normal' }],
     });
@@ -87,14 +90,30 @@ describe('前缀开话题', () => {
       chatId: 'oc_topic_chat',
       options: { replyTo: 'om_prefixed', replyInThread: true },
     });
-    expect(JSON.stringify(h.channel.sent[0]?.content)).toContain('已开话题');
+    // The topic opens with the progress card itself, not a line of its own…
+    expect(JSON.stringify(h.channel.sent[0]?.content)).toContain('正在思考');
+    expect(JSON.stringify(h.channel.sent[0]?.content)).not.toContain('已开话题');
     const prompt = h.agent.runOptions[0]?.prompt ?? '';
     expect(prompt).toContain('"threadId":"omt_new"');
     expect(prompt).toContain('/high');
-    await waitFor(() => h.channel.streams.length === 1);
-    expect(h.channel.streams[0]?.options).toMatchObject({ replyTo: 'om_prefixed', replyInThread: true });
+    // …which the run takes over instead of posting a second card.
+    await waitFor(() => h.channel.cardUpdates.some((u) => u.messageId === 'om_sent_1'));
+    expect(h.channel.streams).toHaveLength(0);
     await waitFor(() => h.sessions.getRaw('oc_topic_chat:omt_new')?.sessionId === 'sess-1');
     expect(h.sessions.getRaw('oc_topic_chat')).toBeUndefined();
+    // The run left nothing to show: the card that opened the topic goes back to the notice, not recalled.
+    await waitFor(() => JSON.stringify(h.channel.cardUpdates.at(-1)?.card).includes('已开话题'));
+    expect(h.channel.recallMessage).not.toHaveBeenCalledWith('om_sent_1');
+  });
+
+  it('turns the opener card back into the notice when the run replies without a card', async () => {
+    const h = await createHarness({ chatMode: 'group', messageReply: 'markdown', rawThreadIds: { om_md: 'omt_md' } });
+    await startTestBridge(h);
+
+    await h.channel.handlers.message?.(message({ messageId: 'om_md', content: '/high 查一下 X' }));
+    await waitFor(() => h.channel.cardUpdates.some((u) => u.messageId === 'om_sent_1'));
+    expect(JSON.stringify(h.channel.cardUpdates.at(-1)?.card)).toContain('已开话题');
+    expect(h.channel.streams[0]?.options).toMatchObject({ replyTo: 'om_md', replyInThread: true });
   });
 
   it('opens the topic in a private chat too', async () => {
@@ -154,7 +173,7 @@ describe('前缀开话题', () => {
     await h.channel.handlers.message?.(message({ messageId: 'om_plain', content: '看看' }));
     await waitFor(() => h.agent.runOptions.length === 1);
 
-    expect(h.channel.sent.filter((s) => JSON.stringify(s.content).includes('已开话题'))).toHaveLength(0);
+    expect(openers(h.channel)).toHaveLength(0);
     expect(h.agent.runOptions[0]?.prompt ?? '').not.toContain('omt_x');
   });
 
@@ -173,7 +192,7 @@ describe('前缀开话题', () => {
     );
     await waitFor(() => h.agent.runOptions.length === 1);
 
-    expect(h.channel.sent.filter((s) => JSON.stringify(s.content).includes('已开话题'))).toHaveLength(0);
+    expect(openers(h.channel)).toHaveLength(0);
     expect(h.agent.runOptions[0]?.prompt ?? '').toContain('"threadId":"omt_existing"');
   });
 
@@ -182,13 +201,13 @@ describe('前缀开话题', () => {
     await startTestBridge(h);
     await h.channel.handlers.message?.(message({ messageId: 'om_off', content: '/high 查一下 X' }));
     await waitFor(() => h.agent.runOptions.length === 1);
-    expect(h.channel.sent.filter((s) => JSON.stringify(s.content).includes('已开话题'))).toHaveLength(0);
+    expect(openers(h.channel)).toHaveLength(0);
 
     const h2 = await createHarness({ chatMode: 'group', rawThreadIds: { om_bare: 'omt_bare' } });
     await startTestBridge(h2);
     await h2.channel.handlers.message?.(message({ messageId: 'om_bare', content: '/high' }));
     await waitFor(() => h2.agent.runOptions.length === 1);
-    expect(h2.channel.sent.filter((s) => JSON.stringify(s.content).includes('已开话题'))).toHaveLength(0);
+    expect(openers(h2.channel)).toHaveLength(0);
   });
 
   it('runs the message where it was when Feishu gives no topic back', async () => {
@@ -214,7 +233,7 @@ describe('自动开话题', () => {
     await waitFor(() => h.agent.runOptions.length === 1);
 
     expect(h.channel.sent[0]).toMatchObject({ options: { replyTo: 'om_auto', replyInThread: true } });
-    expect(JSON.stringify(h.channel.sent[0]?.content)).toContain('已开话题');
+    expect(JSON.stringify(h.channel.sent[0]?.content)).toContain('正在思考');
     const prompt = h.agent.runOptions[0]?.prompt ?? '';
     expect(prompt).toContain('"threadId":"omt_auto"');
     expect(prompt).toContain('密码多少');
@@ -227,7 +246,7 @@ describe('自动开话题', () => {
     await h.channel.handlers.message?.(message({ messageId: 'om_auto_hi', content: '/high 查一下 X' }));
     await waitFor(() => h.agent.runOptions.length === 1);
 
-    expect(h.channel.sent.filter((s) => JSON.stringify(s.content).includes('已开话题'))).toHaveLength(1);
+    expect(openers(h.channel)).toHaveLength(1);
     expect(h.agent.runOptions[0]?.prompt ?? '').toContain('"threadId":"omt_hi"');
   });
 
@@ -239,7 +258,7 @@ describe('自动开话题', () => {
     );
     await waitFor(() => h.agent.runOptions.length === 1);
     expect(h.agent.runOptions[0]?.prompt ?? '').toContain('"threadId":"omt_in"');
-    expect(h.channel.sent.filter((s) => JSON.stringify(s.content).includes('已开话题'))).toHaveLength(0);
+    expect(openers(h.channel)).toHaveLength(0);
 
     const h2 = await createHarness({
       chatMode: 'group',
@@ -253,8 +272,18 @@ describe('自动开话题', () => {
   });
 });
 
+/** Replies that opened a topic: the opener card (or the notice it falls back to), sent in thread. */
+function openers(channel: FakeLarkChannel) {
+  return channel.sent.filter((s) => {
+    const body = JSON.stringify(s.content);
+    return (s.options as { replyInThread?: boolean } | undefined)?.replyInThread === true &&
+      (body.includes('正在思考') || body.includes('已开话题'));
+  });
+}
+
 async function createHarness(options: {
   chatMode?: 'group' | 'topic';
+  messageReply?: 'card' | 'markdown';
   quotedMessages?: Record<string, string>;
   rawThreadIds?: Record<string, string>;
   threadMessages?: Array<Record<string, unknown>>;
@@ -294,6 +323,7 @@ async function createHarness(options: {
       autoEffort: { enabled: true },
       ...(options.topicPrefix !== undefined ? { topicPrefix: options.topicPrefix } : {}),
       ...(options.autoTopic !== undefined ? { autoTopic: options.autoTopic } : {}),
+      ...(options.messageReply ? { messageReply: options.messageReply } : {}),
     },
     workspaces: {
       ...baseProfileConfig.workspaces,
@@ -350,6 +380,7 @@ function createFakeLarkChannel(options: {
   const handlers: MessageHandlerMap = {};
   const sent: Array<{ chatId: string; content: unknown; options: unknown }> = [];
   const streams: Array<{ chatId: string; options: unknown }> = [];
+  const cardUpdates: Array<{ messageId: string; card: unknown }> = [];
   const chatMode = options.chatMode ?? 'topic';
   const quotedMessages = options.quotedMessages ?? {
     om_topic_root: 'topic root content',
@@ -361,6 +392,7 @@ function createFakeLarkChannel(options: {
     handlers,
     sent,
     streams,
+    cardUpdates,
     botIdentity: { openId: 'ou_bot', name: 'Bridge' },
     rawClient: {
       request: vi.fn(async () => ({ data: { items: [] } })),
@@ -414,6 +446,9 @@ function createFakeLarkChannel(options: {
         await input.markdown({ setContent: async () => {} });
       }
       return { messageId: `om_stream_${streams.length}` };
+    },
+    async updateCard(messageId, card) {
+      cardUpdates.push({ messageId, card });
     },
     recallMessage: vi.fn(async () => {}),
   };

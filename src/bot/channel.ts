@@ -34,7 +34,7 @@ import { fitCardToBudget, fullText } from '../card/card-budget';
 import { detectLocale, runStrings, type Locale } from '../card/i18n';
 import { withoutOffLocaleProgress } from '../card/progress-language';
 import { runningToolLabel } from '../card/run-activity';
-import { renderCard } from '../card/run-renderer';
+import { renderCard, renderTopicOpenerCard } from '../card/run-renderer';
 import type { RunActivity, RunCardRenderOptions } from '../card/run-renderer';
 import {
   backgroundLeft,
@@ -161,6 +161,7 @@ import {
   topicOpenedText,
   topicRunText,
 } from './topic-prefix';
+import { adoptCardStream, holdTopicOpener, releaseTopicOpener, takeTopicOpener, topicOpenedNoticeCard } from './topic-opener';
 import {
   addDoneReaction,
   addSupplementReaction,
@@ -661,6 +662,8 @@ export async function startChannel(deps: StartChannelDeps): Promise<BridgeChanne
           log.fail('flush', notifyErr, { step: 'notify-failed' }),
         );
       } finally {
+        // A topic opener card no run took over (another reply mode, a rejected batch…) turns back into the notice.
+        await releaseTopicOpener(channel, scope);
         pending.unblock(scope);
         log.info('flush', 'end');
       }
@@ -1474,6 +1477,7 @@ async function intakeMessage(deps: IntakeDeps): Promise<void> {
   // Recalled while intake was still resolving it.
   if (deps.recalled?.has(runMsg.messageId)) {
     log.info('intake', 'skip-recalled', { scope: runScope, msgId: runMsg.messageId });
+    await releaseTopicOpener(channel, runScope);
     return;
   }
   const size = pending.push(runScope, runMsg);
@@ -1512,11 +1516,22 @@ async function openTopicFor(
   scope: string,
   prefix: TopicPrefix,
 ): Promise<{ msg: NormalizedMessage; scope: string } | undefined> {
-  const threadId = await openTopicUnder(channel, msg, topicOpenedText(prefix));
-  if (!threadId) return undefined;
+  const title = channel.botIdentity?.name ?? 'Occam';
+  const fallbackText = topicOpenedText(prefix);
+  const opened = await openTopicUnder(channel, msg, {
+    card: renderTopicOpenerCard(title, detectLocale([msg.content ?? ''])),
+  });
+  if (!opened) return undefined;
+  const { threadId, openerId } = opened;
+  const topicScope = threadId ? `${msg.chatId}:${threadId}` : undefined;
+  // The opener card is the topic's progress card to be; until a run takes it, it is held for the topic.
+  holdTopicOpener(topicScope ?? `opener:${openerId}`, { messageId: openerId, title, fallbackText });
+  if (!threadId || !topicScope) {
+    await releaseTopicOpener(channel, `opener:${openerId}`);
+    return undefined;
+  }
   const moved = markSpawnedTopic({ ...msg, threadId, content: topicRunText(msg.content ?? '', prefix) });
   if (isEdited(msg)) markEdited(moved);
-  const topicScope = `${msg.chatId}:${threadId}`;
   log.info('topic-prefix', 'opened', { from: scope, scope: topicScope, msgId: msg.messageId, label: prefix.label });
   return { msg: moved, scope: topicScope };
 }
@@ -2398,6 +2413,9 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
   // opposed to landing in the progress card that was created at the start.
   let answerIsNewMessage = false;
 
+  // Only the progress card can take over a topic's opener card; any other reply leaves it the notice it stands for.
+  if (cotEnabled || replyMode !== 'card') await releaseTopicOpener(channel, scope);
+
   try {
     if (cotEnabled) {
       const cotPublisher = new CotPublisher({
@@ -2485,27 +2503,30 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
         lastLiveCard = fitted.card;
         return fitted.card;
       };
-      const progress = createLazyProgressStream(scope, replyMode, () =>
-        channel.stream(
-          chatId,
-          {
-            card: {
-              initial: renderCard(initialState, cardRenderOptions),
-              producer: async (ctrl) => {
-                producerStarted = true;
-                if (progress.abandoned()) return;
-                cardCtrl = ctrl;
-                cardMessageId = ctrl.messageId;
-                instrumentCardPatches(ctrl, cardHealth);
-                supplementTarget.replyIds.add(ctrl.messageId);
-                await ctrl.update(renderLiveCard(latestState));
-                await renderDone;
-              },
-            },
-          },
-          sendOpts,
-        ),
-      );
+      const cardProducer = async (ctrl: NonNullable<typeof cardCtrl> & { readonly messageId: string }): Promise<void> => {
+        producerStarted = true;
+        if (progress.abandoned()) return;
+        cardCtrl = ctrl;
+        cardMessageId = ctrl.messageId;
+        instrumentCardPatches(ctrl, cardHealth);
+        supplementTarget.replyIds.add(ctrl.messageId);
+        await ctrl.update(renderLiveCard(latestState));
+        await renderDone;
+      };
+      const progress = createLazyProgressStream(scope, replyMode, () => {
+        const initial = renderCard(initialState, cardRenderOptions);
+        // A topic opened for this message: its first post is already this card, waiting to be taken over.
+        const opener = takeTopicOpener(scope);
+        if (opener) {
+          log.info('topic-prefix', 'opener-adopted', { scope, msgId: opener.messageId });
+          // Left empty, it goes back to the notice rather than being recalled: it opened the topic.
+          return adoptCardStream(channel, opener.messageId, initial, cardProducer).then((r) => ({
+            ...r,
+            emptyCard: topicOpenedNoticeCard(opener),
+          }));
+        }
+        return channel.stream(chatId, { card: { initial, producer: cardProducer } }, sendOpts);
+      });
       const renderDone = processAgentStream(
         handle,
         eventStream,
@@ -3190,9 +3211,14 @@ async function recallStreamedMessage(
   streamResult: unknown,
   scope: string,
 ): Promise<void> {
-  const messageId = (streamResult as { messageId?: string } | undefined)?.messageId;
+  const { messageId, emptyCard } = (streamResult ?? {}) as { messageId?: string; emptyCard?: object };
   if (!messageId) return;
   try {
+    if (emptyCard) {
+      await channel.updateCard(messageId, emptyCard);
+      log.info('outbound', 'empty-opener-restored', { scope, messageId });
+      return;
+    }
     await channel.recallMessage(messageId);
     log.info('outbound', 'recall-empty', { scope, messageId });
   } catch (err) {

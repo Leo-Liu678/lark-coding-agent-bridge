@@ -71,18 +71,31 @@ export function topicRunText(text: string, prefix: TopicPrefix): string {
   return prefix.rest || '请处理我引用的消息或发来的附件。';
 }
 
+/** The reply that opened a topic under a message, and the topic's id — missing when Feishu gave none back. */
+export interface OpenedTopic {
+  threadId: string | undefined;
+  openerId: string;
+}
+
 /**
  * Reply under `msg` in thread and return the topic it opened. Undefined when
- * either step fails — the caller then runs the message where it was.
+ * the reply could not be sent; no `threadId` when Feishu gave none back —
+ * either way the caller runs the message where it was.
  */
 export async function openTopicUnder(
   channel: LarkChannel,
   msg: Pick<NormalizedMessage, 'chatId' | 'messageId'>,
-  text: string,
+  content: string | { card: object },
   retryDelayMs = 800,
-): Promise<string | undefined> {
+): Promise<OpenedTopic | undefined> {
+  let openerId: string;
   try {
-    await channel.send(msg.chatId, { text }, { replyTo: msg.messageId, replyInThread: true });
+    const sent = await channel.send(
+      msg.chatId,
+      typeof content === 'string' ? { text: content } : content,
+      { replyTo: msg.messageId, replyInThread: true },
+    );
+    openerId = sent.messageId;
   } catch (err) {
     log.warn('topic-prefix', 'open-failed', { msgId: msg.messageId, err: String(err) });
     return undefined;
@@ -94,7 +107,7 @@ export async function openTopicUnder(
     threadId = await lookupMessageThreadId(channel, msg.messageId);
   }
   if (!threadId) log.warn('topic-prefix', 'thread-id-missing', { msgId: msg.messageId });
-  return threadId;
+  return { threadId, openerId };
 }
 
 const spawned = new WeakSet<NormalizedMessage>();

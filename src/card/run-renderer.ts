@@ -136,6 +136,32 @@ export function renderCard(state: RunState, options: RunCardRenderOptions = {}):
   });
 }
 
+/**
+ * The card that opens a topic (自动开话题 / 前缀开话题): the progress card as
+ * it will first look, minus the stop button — there is no run to stop yet.
+ * The run that follows takes the card over and keeps updating it, so the
+ * topic's first post is the progress card rather than a line of its own.
+ */
+export function renderTopicOpenerCard(title: string, locale?: Locale): object {
+  const t = runStrings(locale);
+  return {
+    schema: '2.0',
+    config: { width_mode: 'fill', streaming_mode: true, summary: { content: t.summary.thinking } },
+    header: cardHeader(title, 'running'),
+    body: { elements: [footerStatus('thinking', t)] },
+  };
+}
+
+/** What a topic opener card becomes when no run takes it over: the plain notice it replaced. */
+export function renderTopicOpenedNotice(title: string, text: string): object {
+  return {
+    schema: '2.0',
+    config: { width_mode: 'fill', summary: { content: text } },
+    header: cardHeader(title, 'done'),
+    body: { elements: [{ tag: 'markdown', content: text }] },
+  };
+}
+
 /** Coloured title bar: wathet while healthy, red on failure, orange while
  * paused for quota, grey when cut short. */
 function cardHeader(title: string, terminal: Terminal): object {
