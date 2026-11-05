@@ -24,6 +24,8 @@ export interface FindRelevantNotesInput {
   /** What is being asked: the message text (a scheduled job's prompt). */
   query: string;
   limit?: number;
+  /** The owner's own private chat: `notes/global-owner/` may match too. */
+  ownerPrivate?: boolean;
 }
 
 const DEFAULT_LIMIT = 8;
@@ -54,8 +56,8 @@ const CJK_STOP = new Set(
 export async function findRelevantNotes(input: FindRelevantNotesInput): Promise<RelevantNotes | undefined> {
   const query = [...new Set(terms(input.query.slice(0, MAX_QUERY_CHARS)))];
   if (query.length === 0) return undefined;
-  const { own, external } = await noteCandidates(input.store, input.scopeId);
-  const notes = [...own, ...external];
+  const candidates = await noteCandidates(input.store, input.scopeId, { ownerPrivate: input.ownerPrivate });
+  const notes = [...candidates.own, ...candidates.global, ...candidates.external];
   if (notes.length === 0) return undefined;
   const docs = (await Promise.all(notes.map(loadDoc))).filter((doc): doc is Doc => doc !== undefined);
   const best = rankDocs(docs, query).slice(0, input.limit ?? DEFAULT_LIMIT);

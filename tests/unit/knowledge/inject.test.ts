@@ -6,6 +6,7 @@ import { claudeSessionHasKnowledge } from '../../../src/agent/claude/session-pro
 import { promptSection } from '../../../src/agent/prompt.js';
 import { buildKnowledgeContext, knowledgeStub, listedNoteNames, pickNotes } from '../../../src/knowledge/inject.js';
 import type { KnowledgeStore } from '../../../src/knowledge/store.js';
+import { digestView, type DigestManifest } from '../../../src/knowledge/digest.js';
 
 const NOTES = '/kb/notes';
 
@@ -17,9 +18,11 @@ function fakeStore(
     rank?: Record<string, number>;
     created?: Record<string, number>;
     shown?: Record<string, number>;
+    manifest?: DigestManifest;
   } = {},
 ): KnowledgeStore {
   return {
+    ...(over.manifest ? { digestView: async () => digestView(over.manifest!) } : {}),
     listMemories: async (scope: { kind: string }) =>
       scope.kind === 'profile' ? (over.profile ?? ['用中文回复']).map((text, i) => ({ id: `m${i}`, text })) : [],
     listSkills: async () =>
@@ -105,7 +108,7 @@ describe('buildKnowledgeContext', () => {
     expect(ctx?.notes).toEqual(['oc_1_omt_2/y', 'oc_1/b', 'oc_1/a', 'oc_1_omt_1/x', 'external/e3', 'external/e2', 'external/e1']);
   });
 
-  it('keeps an exploration share for the least shown notes, newest first among equals, read or not', async () => {
+  it('keeps a refresh share for the least shown notes, newest first among equals, read or not', async () => {
     const many = (prefix: string, count: number) => Array.from({ length: count }, (_, i) => `${prefix}-${String(i).padStart(2, '0')}`);
     const store = fakeStore({
       notes: { oc_1: [...many('old', 70), 'fresh-a', 'fresh-b'], external: [...many('ext', 70), 'fresh-c'] },
@@ -127,29 +130,64 @@ describe('buildKnowledgeContext', () => {
     expect(ctx?.notes).not.toContain('external/ext-45');
   });
 
-  it('gives own, external and exploration 40 slots each, and lets the others fill a share that runs short', () => {
+  it('gives global 40, external 30, own 30 and refresh 20 slots, and lets the others fill a share that runs short', () => {
     const own = Array.from({ length: 70 }, (_, i) => `own-${i}`);
+    const global = Array.from({ length: 70 }, (_, i) => `glob-${i}`);
     const external = Array.from({ length: 65 }, (_, i) => `ext-${i}`);
-    const kept = pickNotes({ own, external });
-    expect(kept).toHaveLength(120);
-    expect(kept.filter((name) => name.startsWith('own-'))).toHaveLength(60);
-    expect(kept.filter((name) => name.startsWith('ext-'))).toHaveLength(60);
+    const all = pickNotes({ own, global, external });
+    expect(all).toHaveLength(120);
+    // No refresh list: its 20 slots go round the others.
+    expect(all.filter((name) => name.startsWith('glob-')).length).toBeGreaterThanOrEqual(40);
+    expect(all.filter((name) => name.startsWith('ext-')).length).toBeGreaterThanOrEqual(30);
+    expect(all.filter((name) => name.startsWith('own-')).length).toBeGreaterThanOrEqual(30);
     expect(pickNotes({ external })).toHaveLength(65);
     expect(pickNotes({ own: own.slice(0, 5), external: external.slice(0, 3) })).toHaveLength(8);
     expect(pickNotes({ own })).toHaveLength(70);
-    const explore = [...own].reverse();
-    const three = pickNotes({ own, external, explore });
-    expect(three).toHaveLength(120);
-    // Exploration takes own-69..own-30, own the rest; external gets its 40 and the slots own could not use.
-    expect(three.filter((name) => name.startsWith('own-'))).toHaveLength(70);
-    expect(three).toEqual(expect.arrayContaining(['own-69', 'own-30', 'own-0', 'ext-49']));
-    expect(three).not.toContain('ext-50');
-    // Listed own then external, in their order, whichever share took them.
-    expect(three.slice(0, 2)).toEqual(['own-0', 'own-1']);
+    const refresh = [...global].reverse();
+    const four = pickNotes({ own, global, external, refresh });
+    expect(four).toHaveLength(120);
+    // Refresh takes glob-69..glob-50, global its own 40 from the top, own and external 30 each.
+    expect(four.filter((name) => name.startsWith('glob-'))).toHaveLength(60);
+    expect(four.filter((name) => name.startsWith('own-'))).toHaveLength(30);
+    expect(four.filter((name) => name.startsWith('ext-'))).toHaveLength(30);
+    expect(four).toEqual(expect.arrayContaining(['glob-69', 'glob-50', 'glob-39', 'ext-29']));
+    expect(four).not.toContain('glob-45');
+    // Listed own, global, then external, in their order, whichever share took them.
+    expect(four.slice(0, 2)).toEqual(['own-0', 'own-1']);
+    expect(four[30]).toBe('glob-0');
     // A least shown note that is also among the most read is listed once, and its own share takes the next.
-    const shared = pickNotes({ own: own.slice(0, 45), explore: [own[0]!] });
-    expect(shared).toHaveLength(45);
-    expect(new Set(shared).size).toBe(45);
+    const shared = pickNotes({ own: own.slice(0, 35), refresh: [own[0]!] });
+    expect(shared).toHaveLength(35);
+    expect(new Set(shared).size).toBe(35);
+  });
+
+  it('lists the knowledge layer instead of the raw notes it covers, and the topics this chat went into as its own', async () => {
+    const manifest: DigestManifest = {
+      version: 1,
+      updatedAt: 1,
+      sources: {
+        'oc_1/build': { hash: 'h', entries: { a1a1a1: 'global/build', b2b2b2: null } },
+        'oc_9/deploy': { hash: 'h', entries: { c3c3c3: 'global/deploy', d4d4d4: 'global-owner/hosts' } },
+        'external/feishu-card': { hash: 'h', entries: { e5e5e5: 'global-external/feishu' } },
+      },
+    };
+    const store = fakeStore({
+      manifest,
+      notes: {
+        oc_1: ['build', 'fresh'],
+        oc_9: ['deploy'],
+        global: ['build', 'deploy'],
+        'global-owner': ['hosts'],
+        'global-external': ['feishu'],
+        external: ['feishu-card', 'au-timezone'],
+      },
+    });
+    const ctx = await buildKnowledgeContext({ store, scopeId: 'oc_1' });
+    // Own: the raw note not folded in yet, then the layer topic its notes went into.
+    expect(ctx?.notes).toEqual(['oc_1/fresh', 'global/build', 'global/deploy', 'global-external/feishu', 'external/au-timezone']);
+    // Only the owner's private chat is shown the owner layer; other chats' raw notes never.
+    const owner = await buildKnowledgeContext({ store, scopeId: 'oc_9', ownerPrivate: true });
+    expect(owner?.notes).toEqual(['global/deploy', 'global-owner/hosts', 'global/build', 'global-external/feishu', 'external/au-timezone']);
   });
 
   it('names the notes a block lists, by name or by path', () => {

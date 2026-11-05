@@ -1942,10 +1942,13 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
   // Memory and the skill index are read fresh on every run: `/memory add` in
   // the middle of a conversation has to take effect on the next message, not
   // the next restart.
+  // Only the owner's own private chat is shown the owner-only knowledge layer.
+  const ownerPrivate = firstMsg.chatType === 'p2p' && isOwnerBatch(controls, batch, (m) => senderTypeOf(m) === 'bot');
   const knowledgeContext = knowledge
     ? await buildKnowledgeContext({
         store: knowledge,
         scopeId: scope,
+        ownerPrivate,
         // Claude Code already lists its own skills: don't list them twice.
         ...nativeSkillOption(agentKind),
       }).catch((err: unknown) => {
@@ -1975,6 +1978,7 @@ async function runAgentBatch(deps: RunBatchDeps): Promise<void> {
     ? await findRelevantNotes({
         store: knowledge,
         scopeId: scope,
+        ownerPrivate,
         query: batch.map((m) => m.content).join('\n'),
       }).catch((err: unknown) => {
         log.warn('knowledge', 'relevance-failed', { scope, err: String(err) });

@@ -10,6 +10,7 @@ import type { RunState } from '../card/run-state';
 import { renderText } from '../card/text-renderer';
 import { promptSection } from '../agent/prompt';
 import { buildKnowledgeContext, nativeSkillOption } from '../knowledge/inject';
+import { isCreator } from '../policy/access';
 import { findRelevantNotes } from '../knowledge/relevance';
 import type { Controls } from '../commands';
 import { effortPrefForChat, getMessageReplyMode, getRunIdleTimeoutMs, getShowToolCalls } from '../config/schema';
@@ -267,15 +268,18 @@ async function buildJobPrompt(
   // `cron:<id>` scope — the job should inherit what that conversation taught
   // the bot, which is where it was created.
   const originScope = job.threadId ? `${job.chatId}:${job.threadId}` : job.chatId;
+  // A job the owner set up in their own private chat sees what that chat sees.
+  const ownerPrivate = job.chatType === 'p2p' && isCreator(deps.controls, job.creatorId);
   const knowledge = store
     ? await buildKnowledgeContext({
         store,
         scopeId: originScope,
+        ownerPrivate,
         ...nativeSkillOption(deps.controls.profileConfig.agentKind),
       }).catch(() => undefined)
     : undefined;
   const relevant = store
-    ? await findRelevantNotes({ store, scopeId: originScope, query: job.prompt }).catch(() => undefined)
+    ? await findRelevantNotes({ store, scopeId: originScope, ownerPrivate, query: job.prompt }).catch(() => undefined)
     : undefined;
   return [
     ...(knowledge ? [promptSection('bridge_knowledge', knowledge), ''] : []),

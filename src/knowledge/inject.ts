@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { basename, dirname } from 'node:path';
 import { nativeSkillDirsFor } from '../agent/native-skills';
 import type { AgentKind } from '../agent/registry';
+import { digestView, emptyManifest, familyOf, GLOBAL_EXTERNAL_SCOPE, GLOBAL_OWNER_SCOPE, GLOBAL_SCOPE } from './digest';
 import { sanitizeScopeId, type KnowledgeStore, type MemoryEntry, type NoteFile, type SkillSummary } from './store';
 
 export interface KnowledgeContext {
@@ -34,6 +35,11 @@ export interface BuildKnowledgeContextInput {
    * Code's `~/.claude/skills`): left out of the index rather than listed twice.
    */
   nativeSkillDirs?: ReadonlySet<string>;
+  /**
+   * The owner's own private chat: the only one that is shown
+   * `notes/global-owner/` (production hosts, people, the owner's affairs).
+   */
+  ownerPrivate?: boolean;
 }
 
 export interface SkillRef {
@@ -61,15 +67,20 @@ const SKILL_INDEX_MAX_CHARS = 16_000;
 /** 课前学习 writes what it learned from other bots under `notes/external/`; every chat may read it. */
 const EXTERNAL_NOTES_SCOPE = 'external';
 /**
- * The notes index has three shares: this chat's own notes and other bots'
- * (`external/`), each the most read of the last 30 days first; and the least
- * shown of either side ({@link KnowledgeStore.noteExposures}), newest first
- * among equals. A note too new, or too long unread, to rank among the most
- * read would otherwise never make the index, and so never be read; shown in
- * turn, each gets its chance. A share with fewer notes than its slots leaves
- * them to the others.
+ * The notes index has four shares (主人 2026-11-05):
+ * - global: the 全局知识整合层 (`notes/global/`, and `notes/global-owner/` in
+ *   the owner's private chat), the most read of the last 30 days first;
+ * - external: other bots' knowledge — `notes/global-external/` and whatever of
+ *   `notes/external/` is not folded in yet — the most read first;
+ * - own: this chat's raw notes not folded in yet (the newest knowledge), then
+ *   the layer topics this chat's notes went into;
+ * - refresh: the least shown of everything listable
+ *   ({@link KnowledgeStore.noteExposures}), newest first among equals, so a
+ *   note gone quiet comes round again.
+ * Raw notes the layer covers are listed through it, never on their own. A
+ * share with fewer notes than its slots leaves them to the others.
  */
-const NOTE_SHARES = { own: 40, explore: 40, external: 40 } as const;
+const NOTE_SHARES = { global: 40, external: 30, own: 30, refresh: 20 } as const;
 const MAX_NOTES = Object.values(NOTE_SHARES).reduce((sum, slots) => sum + slots, 0);
 
 /**
@@ -91,17 +102,18 @@ export async function buildKnowledgeContext(
     groupId ? input.store.listMemories({ kind: 'chat', scopeId: groupId }) : Promise.resolve([]),
     input.store.listMemories({ kind: 'chat', scopeId: input.scopeId }),
     input.store.listSkills(),
-    noteCandidates(input.store, input.scopeId),
+    noteCandidates(input.store, input.scopeId, { ownerPrivate: input.ownerPrivate }),
   ]);
   // The notes read most lately first (课堂精练's recall counts); ties keep this topic's, the chat's, then other topics' order.
-  const ownNotes = input.store.rankNotes(candidates.own);
+  const globalNotes = input.store.rankNotes(candidates.global);
   const externalNotes = input.store.rankNotes(candidates.external);
-  const notes = [...ownNotes, ...externalNotes];
+  const ownNotes = [...input.store.rankNotes(candidates.own), ...input.store.rankNotes(candidates.concerned)];
+  const notes = [...new Set([...ownNotes, ...globalNotes, ...externalNotes])];
   const shown = input.store.noteExposures?.() ?? (() => 0);
   const createdAt = input.store.noteCreatedAt?.() ?? ((note: { createdAt?: number }) => note.createdAt);
   const born = new Map(notes.map((note) => [note, createdAt(note) ?? 0]));
-  const explore = [...notes].sort((a, b) => shown(a.name) - shown(b.name) || born.get(b)! - born.get(a)!);
-  const keptNotes = pickNotes({ own: ownNotes, external: externalNotes, explore });
+  const refresh = [...notes].sort((a, b) => shown(a.name) - shown(b.name) || born.get(b)! - born.get(a)!);
+  const keptNotes = pickNotes({ own: ownNotes, global: globalNotes, external: externalNotes, refresh });
   const chat = [...group, ...topic];
 
   const budgeted = applyBudget(profile, chat, input.maxChars ?? DEFAULT_MAX_CHARS);
@@ -133,25 +145,48 @@ export function nativeSkillOption(kind: AgentKind): { nativeSkillDirs?: Readonly
   return dirs?.size ? { nativeSkillDirs: dirs } : {};
 }
 
+export interface NoteCandidates {
+  /** The layer every chat sees (`global/`), and `global-owner/` in the owner's private chat. */
+  global: NoteFile[];
+  /** `global-external/`, then the `external/` notes not folded in yet. */
+  external: NoteFile[];
+  /** This chat's raw notes not folded in yet: this topic's, the chat's, then the chat's other topics'. */
+  own: NoteFile[];
+  /** The layer notes (among {@link global}) this chat's notes went into. */
+  concerned: NoteFile[];
+}
+
 /**
- * The notes a chat may be shown: its own (this topic's, the chat's, then the
- * chat's other topics', in that order) and other bots' (`external/`).
+ * The notes a chat may be shown: the 全局知识整合层, other bots' knowledge,
+ * and its own raw notes (this topic's, the chat's, then the chat's other
+ * topics', in that order) the layer does not cover yet.
  */
 export async function noteCandidates(
   store: KnowledgeStore,
   scopeId: string,
-): Promise<{ own: NoteFile[]; external: NoteFile[] }> {
+  options: { ownerPrivate?: boolean } = {},
+): Promise<NoteCandidates> {
   // A topic (`oc_xxx:omt_yyy`) also sees its group's notes, and every topic of the chat.
   const groupId = scopeId.includes(':') ? scopeId.split(':')[0] : undefined;
   const siblings = await store.noteTopicScopes(groupId ?? scopeId).catch(() => []);
   const listNotes = (scopes: string[]) => store.listNotes(scopes).catch(() => []);
-  const [scopeNotes, groupNotes, siblingNotes, external] = await Promise.all([
+  const [scopeNotes, groupNotes, siblingNotes, external, layer, layerExternal, digest] = await Promise.all([
     listNotes([scopeId]),
     groupId ? listNotes([groupId]) : Promise.resolve([]),
     listNotes(siblings.filter((scope) => scope !== sanitizeScopeId(scopeId))),
     listNotes([EXTERNAL_NOTES_SCOPE]),
+    listNotes(options.ownerPrivate ? [GLOBAL_SCOPE, GLOBAL_OWNER_SCOPE] : [GLOBAL_SCOPE]),
+    listNotes([GLOBAL_EXTERNAL_SCOPE]),
+    (store.digestView?.() ?? Promise.resolve(digestView(emptyManifest()))).catch(() => digestView(emptyManifest())),
   ]);
-  return { own: [...scopeNotes, ...groupNotes, ...siblingNotes], external };
+  const fresh = (notes: NoteFile[]) => notes.filter((note) => !digest.covered.has(note.name));
+  const topics = digest.topicsOf(familyOf(sanitizeScopeId(groupId ?? scopeId)));
+  return {
+    global: layer,
+    external: [...layerExternal, ...fresh(external)],
+    own: fresh([...scopeNotes, ...groupNotes, ...siblingNotes]),
+    concerned: layer.filter((note) => topics.has(note.name)),
+  };
 }
 
 /** Names of the notes a block lists (`<scope>/<topic>`), whether it lists them by name or by path. */
@@ -183,7 +218,7 @@ export type NoteShares<T> = { [share in keyof typeof NOTE_SHARES]?: readonly T[]
  * the slots left go round the shares in turn.
  */
 export function pickNotes<T>(lists: NoteShares<T>): T[] {
-  const order = ['own', 'explore', 'external'] as const;
+  const order = ['own', 'global', 'external', 'refresh'] as const;
   const taken = new Set<T>();
   const shares = new Map(order.map((share) => [share, 0]));
   const queues = new Map(order.map((share) => [share, [...(lists[share] ?? [])]]));
@@ -199,7 +234,7 @@ export function pickNotes<T>(lists: NoteShares<T>): T[] {
     return false;
   };
   // Least shown first: such a note that is also among the most read leaves its own share a slot for the next one.
-  for (const share of ['explore', 'own', 'external'] as const) {
+  for (const share of ['refresh', 'own', 'global', 'external'] as const) {
     while (shares.get(share)! < NOTE_SHARES[share] && take(share));
   }
   let room = MAX_NOTES - taken.size;
@@ -213,8 +248,8 @@ export function pickNotes<T>(lists: NoteShares<T>): T[] {
     }
     if (!any) break;
   }
-  // Listed own then external, each most read first, whichever share took them: when everything fits, the order still means something.
-  const listed = new Set([...(lists.own ?? []), ...(lists.external ?? []), ...(lists.explore ?? [])]);
+  // Listed own, global, then external, each most read first, whichever share took them: when everything fits, the order still means something.
+  const listed = new Set([...(lists.own ?? []), ...(lists.global ?? []), ...(lists.external ?? []), ...(lists.refresh ?? [])]);
   return [...listed].filter((note) => taken.has(note));
 }
 

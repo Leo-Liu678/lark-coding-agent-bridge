@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { paths } from '../config/paths';
 import { log } from '../core/logger';
 import { writeFileAtomic } from '../platform/atomic-write';
+import { DigestManifestReader, type DigestView } from './digest';
 
 /**
  * Bridge-managed knowledge for one profile: what the bot should remember, and
@@ -64,9 +65,16 @@ export class KnowledgeStore {
   private noteRanker: (() => (name: string) => number) | undefined;
   private noteFirstSeen: (() => (name: string) => number | undefined) | undefined;
   private noteExposure: NoteExposureTracker | undefined;
+  private digestReader: DigestManifestReader | undefined;
 
   constructor(dir: string = paths.knowledgeDir) {
     this.dir = dir;
+  }
+
+  /** The 全局知识整合层 manifest as of now (see `./digest`). */
+  digestView(): Promise<DigestView> {
+    this.digestReader ??= new DigestManifestReader(this.dir);
+    return this.digestReader.view();
   }
 
   /** Merge another source's skills behind this profile's own (`/skills lib`). */
