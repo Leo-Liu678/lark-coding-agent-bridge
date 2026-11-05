@@ -3,7 +3,8 @@
  * runDigest({ full: true })，每次模型调用起一个无工具的 `claude -p`。
  *
  *   pnpm tsup src/dream/digest-full-cli.ts --format esm -d .digest-build --no-config
- *   node .digest-build/digest-full-cli.js <知识库克隆> <受限群 id,逗号分隔> [并发]
+ *   node .digest-build/digest-full-cli.js <知识库克隆> <受限群 id,逗号分隔> [并发] [full|incremental|rerender]
+ *   rerender：不调模型，只按当前规则把整合层重新排版、拆分
  *
  * 写完不提交，由人检查后提交、开 PR。
  */
@@ -11,9 +12,9 @@ import { spawn } from 'node:child_process';
 import { mkdtemp, appendFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { runDigest } from './global-digest';
+import { readLayer, runDigest, writeTopics } from './global-digest';
 
-const [dir, restrictedArg = '', concurrencyArg = '3'] = process.argv.slice(2);
+const [dir, restrictedArg = '', concurrencyArg = '3', mode = 'full'] = process.argv.slice(2);
 if (!dir) {
   console.error('usage: digest-full <knowledge-checkout> <restricted,ids> [concurrency]');
   process.exit(2);
@@ -43,6 +44,12 @@ async function run(key: string, prompt: string): Promise<{ text: string } | { er
   });
 }
 
+if (mode === 'rerender') {
+  const layer = await readLayer(dir);
+  const files = await writeTopics(dir, layer.map((topic) => ({ ...topic, dropped: [], placed: new Map() })), new Date().toISOString().slice(0, 10));
+  console.log(JSON.stringify({ rerendered: layer.length, files: files.length }));
+  process.exit(0);
+}
 const result = await runDigest({
   dir,
   restricted: new Set(restrictedArg.split(',').filter(Boolean)),
@@ -50,7 +57,7 @@ const result = await runDigest({
   now: Date.now(),
   deadline: Date.now() + 90 * 60_000,
   concurrency: Number(concurrencyArg) || 3,
-  full: true,
+  full: mode === 'full',
 });
 await say(`result ${JSON.stringify({ ...result, files: result.files.length, changelog: result.changelog.length })}`);
 console.log(JSON.stringify(result, null, 1));

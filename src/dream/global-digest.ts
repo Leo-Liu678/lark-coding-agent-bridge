@@ -100,7 +100,8 @@ export const MAX_TOPIC_BYTES = 6 * 1024;
 export const MAX_DROP_FRACTION = 0.25;
 const MAX_CLASSIFY_CHARS = 60_000;
 const MAX_MERGE_CHARS = 50_000;
-const MAX_ENTRY_TEXT = 600;
+/** The prompt asks for 600; a little over is kept rather than failing the whole topic. */
+const MAX_ENTRY_TEXT = 900;
 const MAX_REASON = 300;
 const PREVIEW_ENTRIES = 3;
 const PREVIEW_CHARS = 120;
@@ -499,8 +500,26 @@ export function renderTopic(topic: MergedTopic, owner: boolean, updated: string)
   const entryLine = (entry: LayerEntry) => `- [${entry.id}] ${entry.text} ‹${entry.sources.join(',')}›`;
   const parts: string[][] = [[]];
   let size = Buffer.byteLength(header(1));
-  for (const [section, list] of sections) {
-    const block = [`\n## ${section}\n`, ...list.map(entryLine)].join('\n');
+  // Whole sections where they fit; a section too big for a file of its own is cut between entries.
+  const blocks: string[] = [];
+  for (const [name, list] of sections) {
+    let section = name;
+    let current: string[] = [];
+    let used = Buffer.byteLength(`\n## ${section}\n`) + Buffer.byteLength(header(2));
+    for (const entry of list) {
+      const bytes = Buffer.byteLength(entryLine(entry)) + 1;
+      if (current.length > 0 && used + bytes > MAX_TOPIC_BYTES) {
+        blocks.push([`\n## ${section}\n`, ...current].join('\n'));
+        current = [];
+        used = Buffer.byteLength(`\n## ${section}（续）\n`) + Buffer.byteLength(header(2));
+        section = `${section}（续）`;
+      }
+      current.push(entryLine(entry));
+      used += bytes;
+    }
+    if (current.length > 0) blocks.push([`\n## ${section}\n`, ...current].join('\n'));
+  }
+  for (const block of blocks) {
     const bytes = Buffer.byteLength(block) + 1;
     if (size + bytes > MAX_TOPIC_BYTES && parts[parts.length - 1]!.length > 0) {
       parts.push([]);

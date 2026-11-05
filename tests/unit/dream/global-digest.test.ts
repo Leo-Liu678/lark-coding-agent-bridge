@@ -96,6 +96,11 @@ describe('global digest checks', () => {
     expect(parsed.title).toBe('大主题');
     expect(parsed.entries[0]).toMatchObject({ id: 'b00001', section: '甲', sources: ['c00001'] });
     expect(chunk([5, 5, 5], (n) => n, 10)).toEqual([[5, 5], [5]]);
+    const one = { ...topic, entries: [entry(1, '甲'), entry(2, '甲'), entry(3, '甲')] };
+    const cut = renderTopic(one, false, '2026-11-05');
+    expect(cut).toHaveLength(2);
+    expect(cut[1]!.body).toContain('## 甲（续）');
+    expect(cut.every((file) => Buffer.byteLength(file.body) <= 6 * 1024)).toBe(true);
   });
 });
 
