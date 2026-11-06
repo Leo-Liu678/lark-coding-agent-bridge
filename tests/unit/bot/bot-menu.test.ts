@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   applyMenuPrefix,
   MenuPrefixes,
+  menuImmediateCommand,
   menuKeyToPrefix,
   parseBotMenuEvent,
 } from '../../../src/bot/bot-menu';
@@ -81,5 +82,17 @@ describe('MenuPrefixes', () => {
     expect(p.disarm('ou_1')).toBe(true);
     expect(p.disarm('ou_1')).toBe(false);
     expect(p.take('ou_1', 2)).toBeUndefined();
+  });
+});
+
+describe('menuImmediateCommand', () => {
+  it('maps argument-less bridge commands', () => {
+    expect(menuImmediateCommand('reset')).toBe('/reset');
+    expect(menuImmediateCommand(' /STOP ')).toBe('/stop');
+  });
+
+  it('leaves skill keys alone', () => {
+    expect(menuImmediateCommand('new-topic')).toBeUndefined();
+    expect(menuImmediateCommand('reset+eli5')).toBeUndefined();
   });
 });

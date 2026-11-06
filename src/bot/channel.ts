@@ -183,6 +183,8 @@ import {
   MENU_CANCELLED_TEXT,
   MENU_NOTHING_TO_CANCEL_TEXT,
   menuArmedText,
+  menuCommandText,
+  menuImmediateCommand,
   menuKeyToPrefix,
   MenuPrefixes,
   menuUnknownKeyText,
@@ -852,6 +854,58 @@ export async function startChannel(deps: StartChannelDeps): Promise<BridgeChanne
     log.warn('recall', 'hook-unavailable', { reason: 'channel 不支持 onRawEvent' });
   }
 
+  // A menu command runs as if typed in the clicker's p2p chat. The event has
+  // no chat id and commands reply under a message, so a short marker goes to
+  // the clicker first: it is the message the command answers, and its chat
+  // id is the p2p chat.
+  const runMenuCommand = async (openId: string, name: string | undefined, command: string) => {
+    const { messageId } = await channel.send(openId, { text: menuCommandText(command) });
+    const [item] = await channel.fetchRawMessage(messageId);
+    const chatId = (item as { chat_id?: string } | undefined)?.chat_id;
+    if (!chatId) {
+      log.warn('menu', 'no-chat-id', { command });
+      return;
+    }
+    log.info('menu', 'command', { sender: openId.slice(-6), command });
+    const synthetic = {
+      messageId,
+      chatId,
+      chatType: 'p2p',
+      senderId: openId,
+      ...(name ? { senderName: name } : {}),
+      senderType: 'user',
+      senderIsBot: false,
+      content: command,
+      rawContentType: 'text',
+      resources: [],
+      mentions: [],
+      mentionAll: false,
+      mentionedBot: true,
+      createTime: Date.now(),
+    } as NormalizedMessage;
+    await withTrace({ chatId, msgId: messageId }, () =>
+      intakeMessage({
+        channel,
+        agent,
+        sessions,
+        sessionCatalog,
+        workspaces,
+        activeRuns,
+        pending,
+        media,
+        msg: synthetic,
+        controls,
+        chatModeCache,
+        logThreadModeOverride,
+        executor,
+        pool,
+        autoResumer,
+        recalled,
+        menuPrefixes,
+      }),
+    );
+  };
+
   // 机器人自定义菜单: a click arms a slash prefix for the clicker's next p2p
   // message (see bot-menu.ts). Rides the same connection as recall above.
   if (typeof channel.onRawEvent === 'function') {
@@ -864,6 +918,14 @@ export async function startChannel(deps: StartChannelDeps): Promise<BridgeChanne
       const access = canUseDm(controls.profileConfig, controls, evt.operatorOpenId);
       if (!access.ok) {
         log.info('menu', 'access-denied', { sender: evt.operatorOpenId.slice(-6), reason: access.reason });
+        return;
+      }
+      const command = menuImmediateCommand(evt.eventKey);
+      if (command) {
+        menuPrefixes.disarm(evt.operatorOpenId);
+        await runMenuCommand(evt.operatorOpenId, evt.operatorName, command).catch((err) =>
+          log.fail('menu', err, { step: 'command', command }),
+        );
         return;
       }
       let reply: string;

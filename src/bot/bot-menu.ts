@@ -6,7 +6,8 @@
  * on a phone, one tap plus the message replaces typing `/new-topic /statechart`.
  *
  * `event_key` names the skills, joined by `+`: `new-topic+statechart` arms
- * `/new-topic /statechart`. `cancel` disarms. The prefix is used once and
+ * `/new-topic /statechart`. `cancel` disarms. A key naming an argument-less
+ * bridge command (`reset`, `stop`…) runs it right away instead. The prefix is used once and
  * expires after {@link MENU_PREFIX_TTL_MS}.
  *
  * Only arrives once the app subscribes to "机器人自定义菜单事件" in the
@@ -18,6 +19,19 @@ export const BOT_MENU_EVENT = 'application.bot.menu_v6';
 export const MENU_PREFIX_TTL_MS = 10 * 60_000;
 
 export const MENU_CANCEL_KEY = 'cancel';
+
+/**
+ * Bridge commands that take no argument: a menu key naming one runs it at
+ * once instead of arming it — `reset` arming `/reset` would swallow the next
+ * message.
+ */
+export const MENU_IMMEDIATE_COMMANDS: readonly string[] = ['reset', 'new', 'stop', 'status', 'usage', 'ps', 'help'];
+
+/** `reset` → `/reset` when the key names an immediate command. */
+export function menuImmediateCommand(eventKey: string): string | undefined {
+  const name = eventKey.trim().replace(/^\//, '').toLowerCase();
+  return MENU_IMMEDIATE_COMMANDS.includes(name) ? `/${name}` : undefined;
+}
 
 export interface BotMenuEvent {
   eventKey: string;
@@ -102,6 +116,10 @@ export class MenuPrefixes {
 export function menuArmedText(prefix: string): string {
   const minutes = Math.round(MENU_PREFIX_TTL_MS / 60_000);
   return `已选「${prefix}」，直接发内容即可，下一条消息会按它处理（${minutes} 分钟内有效）。`;
+}
+
+export function menuCommandText(command: string): string {
+  return `菜单：${command}`;
 }
 
 export const MENU_CANCELLED_TEXT = '已取消菜单选择。';
