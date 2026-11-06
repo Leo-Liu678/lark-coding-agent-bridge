@@ -169,9 +169,10 @@ import {
   removeReaction,
 } from './reaction';
 import {
-  maySupplement,
+  otherSupplementInstruction,
   SUPPLEMENT_INSTRUCTION,
   supplementPreview,
+  supplementRole,
   supplementSignal,
 } from './supplement';
 import { applyRecall, parseRecallEvent, RECALL_EVENT, RecalledMessages, settleEarlyRecalls } from './recall';
@@ -1613,8 +1614,10 @@ async function intakeEdit(
  * Fold a follow-up into the run already going on this scope instead of
  * queueing it as a new question — only on an explicit signal (quote-reply to
  * the run, a 补充/追加/+ prefix, or posting in the same topic) and only from
- * the run's initiator or the owner. Everything else, including a run that can no longer take input,
- * keeps the queue-for-next-run behavior.
+ * any human — the initiator and the owner add with the run's identity, anyone
+ * else's supplement is marked as theirs and may not borrow it (see
+ * supplementRole). Bots, and a run that can no longer take input, keep the
+ * queue-for-next-run behavior.
  */
 async function tryInjectSupplement(deps: {
   channel: LarkChannel;
@@ -1639,10 +1642,17 @@ async function tryInjectSupplement(deps: {
     inTopic,
   );
   if (!signal) return false;
-  if (!maySupplement(target, msg.senderId, isCreator(controls, msg.senderId))) {
-    log.info('supplement', 'skip-not-initiator', { scope, sender: msg.senderId.slice(-6) });
+  const role = supplementRole(
+    target,
+    msg.senderId,
+    isCreator(controls, msg.senderId),
+    senderTypeOf(msg) === 'user',
+  );
+  if (!role) {
+    log.info('supplement', 'skip-not-human', { scope, sender: msg.senderId.slice(-6) });
     return false;
   }
+  const fromOther = role === 'other';
   const attachments = await media.resolve(
     msg.resources.map((r) => ({ messageId: msg.messageId, resource: r })),
     controls.profileConfig.attachments,
@@ -1653,7 +1663,9 @@ async function tryInjectSupplement(deps: {
     [],
     undefined,
     channel.botIdentity,
-    [SUPPLEMENT_INSTRUCTION],
+    fromOther
+      ? [SUPPLEMENT_INSTRUCTION, otherSupplementInstruction(msg.senderName)]
+      : [SUPPLEMENT_INSTRUCTION],
     undefined,
     isOwnerBatch(controls, [msg], (m) => senderTypeOf(m) === 'bot'),
   );
@@ -1662,7 +1674,14 @@ async function tryInjectSupplement(deps: {
   const injected =
     !deps.recalled?.has(msg.messageId) &&
     activeRuns.get(scope) === handle &&
-    handle.run.inject(prompt, supplementPreview(msg.content, attachments.length));
+    handle.run.inject(
+      prompt,
+      supplementPreview(
+        msg.content,
+        attachments.length,
+        fromOther ? (msg.senderName ?? '其他成员') : undefined,
+      ),
+    );
   if (!injected) {
     log.info('supplement', 'fallback-queue', { scope, msgId: msg.messageId, signal });
     return false;
@@ -1673,6 +1692,7 @@ async function tryInjectSupplement(deps: {
     scope,
     msgId: msg.messageId,
     signal,
+    role,
     attachments: attachments.length,
   });
   void addSupplementReaction(channel, msg.messageId);
