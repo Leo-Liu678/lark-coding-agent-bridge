@@ -1587,3 +1587,39 @@ describe('reading every account for /accounts (refreshAllQuota)', () => {
     expect(failed.sort()).toEqual(['backup2', 'default']);
   });
 });
+
+describe('owner-only account names by mood (2026-11-06)', () => {
+  it('shows the mood name only in the owner view, and keeps the label everywhere else', async () => {
+    const { pool, paths } = await poolWith(['b', 'c']);
+    await updateAccount(paths, 'default', { nicknames: { excited: '大王（兴奋）', happy: '大王' } });
+    await updateAccount(paths, 'b', { nicknames: { happy: '欢哥', wronged: '欢哥受委屈了', sad: '欢哥别难过' } });
+    await updateAccount(paths, 'c', { nicknames: { sad: '梅梅姐姐' }, pausedUntil: NOW + 24 * HOUR });
+    await pool.refresh();
+    // b past its 5-hour line: wronged.
+    pool.observe('b', limit({ windows: [{ kind: 'five_hour', usedPercent: 99, resetsAt: NOW + HOUR }] }));
+    const owner = accountRows(pool, 'shilong.wang', NOW, { private: true });
+    expect(owner.map((r) => r.name)).toEqual(['大王（兴奋）', '欢哥受委屈了']);
+    expect(accountRows(pool, 'shilong.wang', NOW).map((r) => r.name)).toEqual(['shilong.wang', 'b-name']);
+    expect(pausedNote(pool, { private: true })).toContain('梅梅姐姐（c）到');
+    expect(pausedNote(pool)).toContain('c-name（c）到');
+    expect(accountsReport(pool, 'shilong.wang', NOW, { private: true }).join('\n')).toContain('**欢哥受委屈了**');
+    expect(accountsReport(pool, 'shilong.wang', NOW).join('\n')).not.toContain('欢哥');
+    // Any of its names finds it in the owner view, none of them elsewhere.
+    expect(findAccountRow(owner, '欢哥')?.id).toBe('b');
+    expect(findAccountRow(owner, 'b-name')?.id).toBe('b');
+    expect(findAccountRow(accountRows(pool, 'shilong.wang', NOW), '欢哥')).toBeUndefined();
+    expect(findPausedAccount(pool, '梅梅姐姐', { private: true })?.id).toBe('c');
+    expect(findPausedAccount(pool, '梅梅姐姐')).toBeUndefined();
+  });
+
+  it('merges by mood, drops a mood on an empty name, and survives a reload', async () => {
+    const { paths } = await poolWith(['b']);
+    await updateAccount(paths, 'b', { nicknames: { happy: '欢哥', sad: '欢欢' } });
+    await updateAccount(paths, 'b', { nicknames: { sad: '', excited: '欢哥冲' } });
+    expect(readAccountsConfig(paths).accounts[1]?.nicknames).toEqual({ happy: '欢哥', excited: '欢哥冲' });
+    await updateAccount(paths, 'b', { nicknames: null });
+    expect(readAccountsConfig(paths).accounts[1]?.nicknames).toBeUndefined();
+    const parsed = parseAccountsConfig(JSON.stringify({ accounts: [{ id: 'b', nicknames: { 高兴: '欢哥', bogus: 'x' } }] }));
+    expect(parsed.accounts.find((a) => a.id === 'b')?.nicknames).toEqual({ happy: '欢哥' });
+  });
+});

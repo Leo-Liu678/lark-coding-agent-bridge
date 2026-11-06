@@ -21,6 +21,8 @@ import {
   updateAccount,
   updateDefaultLines,
   type SwitchLines,
+  parseNicknameMood,
+  type NicknameMood,
 } from '../../agent/claude/accounts';
 import { mergeProcessEnv, spawnProcess } from '../../platform/spawn';
 import { promptPassword } from '../prompt';
@@ -46,7 +48,7 @@ export async function runClaudeAccountList(opts: AccountCliOptions = {}): Promis
   console.log(
     `# profile ${appPaths.profile} 的 Claude 账户（按优先顺序；默认切换线 5 小时 ${lines.five_hour}% · 本周 ${lines.seven_day}%）\n`,
   );
-  for (const line of accountsReport(pool, await claudeAccountName())) console.log(line.replace(/\*\*/g, ''));
+  for (const line of accountsReport(pool, await claudeAccountName(), Date.now(), { private: true })) console.log(line.replace(/\*\*/g, ''));
   if (!pool.multi) {
     console.log('\n只有 CLI 自己的登录。添加备用账户：先用备用账户执行 `claude setup-token`，再运行');
     console.log(`  lark-channel-bridge claude-account add <id> --label <名字> --profile ${appPaths.profile}`);
@@ -103,19 +105,39 @@ interface LineOptions {
   weekly?: string;
 }
 
+/** `高兴=大王` / `happy=大王` pairs → names by mood; exits on a bad mood. */
+function parseNicknameOptions(pairs: string[]): Partial<Record<NicknameMood, string>> | undefined {
+  if (pairs.length === 0) return undefined;
+  const out: Partial<Record<NicknameMood, string>> = {};
+  for (const pair of pairs) {
+    const at = pair.indexOf('=');
+    const mood = at > 0 ? parseNicknameMood(pair.slice(0, at)) : undefined;
+    if (!mood) {
+      console.error(`✗ --nickname 要写成 <心情>=<称呼>，心情是 高兴/兴奋/难过/委屈（或 happy/excited/sad/wronged）：${pair}`);
+      process.exit(1);
+    }
+    out[mood] = pair.slice(at + 1);
+  }
+  return out;
+}
+
 export async function runClaudeAccountSet(
   id: string,
-  opts: AccountCliOptions & LineOptions & { label?: string },
+  opts: AccountCliOptions & LineOptions & { label?: string; nickname?: string[]; clearNicknames?: boolean },
 ): Promise<void> {
   const lines = parseLineOptions(opts, true);
-  if (opts.label === undefined && !lines) {
-    console.error('✗ 至少给一项：--label <名字>、--five-hour <百分比>、--weekly <百分比>（0 表示跟默认）');
+  const nicknames = parseNicknameOptions(opts.nickname ?? []);
+  if (opts.label === undefined && !lines && !nicknames && !opts.clearNicknames) {
+    console.error(
+      '✗ 至少给一项：--label <名字>、--nickname <心情>=<称呼>、--clear-nicknames、--five-hour <百分比>、--weekly <百分比>（0 表示跟默认）',
+    );
     process.exit(1);
   }
   const appPaths = await resolveSecretProfilePaths(opts);
   await updateAccount(claudeAccountsPaths(appPaths.profileDir), id, {
     ...(opts.label !== undefined ? { label: opts.label } : {}),
     ...(lines ? { lines } : {}),
+    ...(opts.clearNicknames ? { nicknames: null } : nicknames ? { nicknames } : {}),
   });
   console.log(`✓ 已更新账户 ${id}，运行中的 bridge 下一次运行前生效\n`);
   await runClaudeAccountList(opts);
@@ -157,7 +179,7 @@ export async function runClaudeAccountSwitch(
   const pool = new ClaudeAccountPool({ paths });
   await pool.refresh();
   const label = await claudeAccountName();
-  const rows = accountRows(pool, label);
+  const rows = accountRows(pool, label, Date.now(), { private: true });
   let line: number | undefined;
   if (opts.line !== undefined) {
     line = Number(opts.line.trim().replace(/%$/, ''));
@@ -189,8 +211,8 @@ export async function runClaudeAccountSwitch(
   console.log(
     `✓ 已把 ${target.name}（${target.id}）设为主账户${boost ? `，切换线临时调到 ${line}%，该窗口重置后恢复` : ''}，运行中的 bridge 下一次运行前生效\n`,
   );
-  console.log(accountsTable(accountRows(pool, label)).replace(/\*\*/g, ''));
-  const note = pausedNote(pool);
+  console.log(accountsTable(accountRows(pool, label, Date.now(), { private: true })).replace(/\*\*/g, ''));
+  const note = pausedNote(pool, { private: true });
   if (note) console.log(`\n${note}`);
 }
 

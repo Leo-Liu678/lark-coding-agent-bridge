@@ -315,12 +315,30 @@ claudeAccount
   .command('set <id>')
   .description("Change an account's name or switch lines (0 follows the default) without re-entering its token")
   .option('--label <name>', 'name shown as the reply card Sponsor')
+  .option(
+    '--nickname <mood=name>',
+    "owner-only name by mood (高兴/兴奋/难过/委屈 or happy/excited/sad/wronged), repeatable; empty name drops it",
+    (value: string, prev: string[] = []) => [...prev, value],
+  )
+  .option('--clear-nicknames', 'drop all owner-only names')
   .option('--five-hour <percent>', '5-hour window switch line; 0 for the default')
   .option('--weekly <percent>', 'weekly window switch line; 0 for the default')
   .option('--profile <name>', 'profile name (defaults to active profile)')
-  .action(async (id: string, opts: { label?: string; fiveHour?: string; weekly?: string; profile?: string }) => {
-    await runClaudeAccountSet(id, opts);
-  });
+  .action(
+    async (
+      id: string,
+      opts: {
+        label?: string;
+        nickname?: string[];
+        clearNicknames?: boolean;
+        fiveHour?: string;
+        weekly?: string;
+        profile?: string;
+      },
+    ) => {
+      await runClaudeAccountSet(id, opts);
+    },
+  );
 
 claudeAccount
   .command('lines')

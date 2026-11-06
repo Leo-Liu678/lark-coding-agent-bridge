@@ -113,6 +113,55 @@ export interface ClaudeAccountEntry {
   boost?: Partial<Record<WindowKind, LineBoost>>;
   /** Paused by the owner: no run uses the account until then (epoch ms); it comes back on its own. */
   pausedUntil?: number;
+  /**
+   * The owner's private names for the account, one per mood ({@link nicknameOf}).
+   * Shown only where only the owner sees it — `/accounts`, `/accounts switch`
+   * and `/usage` in the owner's own DM, and the local CLI; everywhere else,
+   * including the reply card's `Sponsor:` line, keeps `label`.
+   */
+  nicknames?: Nicknames;
+}
+
+/**
+ * The moods an account's private name follows, read off its state: `excited`
+ * while new runs use it, `happy` when it is ready, `wronged` once past a line
+ * (no fault of its own — it waits for the others), `sad` when refused or paused.
+ */
+export const NICKNAME_MOODS = ['happy', 'excited', 'sad', 'wronged'] as const;
+export type NicknameMood = (typeof NICKNAME_MOODS)[number];
+export type Nicknames = Partial<Record<NicknameMood, string>>;
+
+/** `高兴` / `happy` → `happy`; undefined for anything else. */
+export function parseNicknameMood(raw: string): NicknameMood | undefined {
+  const key = raw.trim().toLowerCase();
+  const zh: Record<string, NicknameMood> = { 高兴: 'happy', 兴奋: 'excited', 难过: 'sad', 委屈: 'wronged' };
+  return (NICKNAME_MOODS as readonly string[]).includes(key) ? (key as NicknameMood) : zh[key];
+}
+
+/**
+ * The account's private name for a mood; falls back through the other moods
+ * (happy first) so one name is enough. Undefined when it has none.
+ */
+export function nicknameOf(entry: Pick<ClaudeAccountEntry, 'nicknames'>, mood: NicknameMood): string | undefined {
+  const names = entry.nicknames;
+  if (!names) return undefined;
+  return names[mood] ?? names.happy ?? NICKNAME_MOODS.map((m) => names[m]).find(Boolean);
+}
+
+/** How a listing names accounts: `private` only for the owner's own eyes. */
+export interface AccountNameView {
+  /** Use the owner's private names ({@link ClaudeAccountEntry.nicknames}) where set. */
+  private?: boolean;
+}
+
+function parseNicknames(raw: unknown): Nicknames | undefined {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
+  const out: Nicknames = {};
+  for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+    const mood = parseNicknameMood(key);
+    if (mood && typeof value === 'string' && value.trim()) out[mood] = value.trim();
+  }
+  return Object.keys(out).length > 0 ? out : undefined;
 }
 
 export interface ClaudeAccountsConfig {
@@ -140,6 +189,8 @@ export interface AccountQuotaState {
 export interface PickedAccount {
   id: string;
   label?: string;
+  /** The owner's private names by mood; see {@link ClaudeAccountEntry.nicknames}. */
+  nicknames?: Nicknames;
   /** Extra environment for the claude process: the account's token. Empty for the CLI's own login. */
   env: Record<string, string>;
 }
@@ -194,9 +245,10 @@ export function parseAccountsConfig(text: string): ClaudeAccountsConfig {
   const seen = new Set<string>();
   for (const item of Array.isArray(raw.accounts) ? raw.accounts : []) {
     if (!item || typeof item !== 'object') continue;
-    const { id, label, lines, reservePercent, boost, pausedUntil } = item as {
+    const { id, label, lines, reservePercent, boost, pausedUntil, nicknames } = item as {
       id?: unknown;
       label?: unknown;
+      nicknames?: unknown;
       lines?: unknown;
       reservePercent?: unknown;
       boost?: unknown;
@@ -210,12 +262,14 @@ export function parseAccountsConfig(text: string): ClaudeAccountsConfig {
         : {};
     const own = { ...legacy, ...parseLines(lines) };
     const raised = parseBoost(boost);
+    const private_ = parseNicknames(nicknames);
     accounts.push({
       id,
       ...(typeof label === 'string' && label.trim() ? { label: label.trim() } : {}),
       ...(Object.keys(own).length > 0 ? { lines: own } : {}),
       ...(raised ? { boost: raised } : {}),
       ...(typeof pausedUntil === 'number' && Number.isFinite(pausedUntil) ? { pausedUntil } : {}),
+      ...(private_ ? { nicknames: private_ } : {}),
     });
   }
   if (!seen.has(DEFAULT_ACCOUNT_ID)) accounts.unshift({ id: DEFAULT_ACCOUNT_ID });
@@ -263,6 +317,8 @@ export interface AccountChanges {
   lines?: Partial<Record<WindowKind, number>>;
   /** Pause the account until then (epoch ms); `null` resumes it now. */
   pausedUntil?: number | null;
+  /** The owner's private names, merged over any before; an empty name drops that mood, `null` drops them all. */
+  nicknames?: Partial<Record<NicknameMood, string>> | null;
 }
 
 /** Add (or replace the token of) an account; new ones go last in the preference order. */
@@ -328,6 +384,18 @@ function applyAccountChanges(config: ClaudeAccountsConfig, id: string, changes: 
   const entry = config.accounts.find((a) => a.id === id)!;
   const label = changes.label?.trim();
   if (label) entry.label = label;
+  if (changes.nicknames === null) delete entry.nicknames;
+  else if (changes.nicknames) {
+    const merged: Nicknames = { ...entry.nicknames };
+    for (const mood of NICKNAME_MOODS) {
+      const value = changes.nicknames[mood];
+      if (value === undefined) continue;
+      if (value.trim()) merged[mood] = value.trim();
+      else delete merged[mood];
+    }
+    if (Object.keys(merged).length > 0) entry.nicknames = merged;
+    else delete entry.nicknames;
+  }
   for (const kind of WINDOW_KINDS) {
     const value = changes.lines?.[kind];
     if (value === undefined) continue;
@@ -747,6 +815,7 @@ export class ClaudeAccountPool {
     return {
       id: entry.id,
       ...(entry.label ? { label: entry.label } : {}),
+      ...(entry.nicknames ? { nicknames: entry.nicknames } : {}),
       env: token ? { CLAUDE_CODE_OAUTH_TOKEN: token } : {},
     };
   }
@@ -793,16 +862,27 @@ export function claudeAccountPool(profileDir: string): ClaudeAccountPool {
  * go to (▶), each one's lines, how full it is by its last report, and whether
  * it is past a line or refused. `defaultLabel` names the CLI's own login.
  */
-export function accountsReport(pool: ClaudeAccountPool, defaultLabel: string | undefined, now = Date.now()): string[] {
+export function accountsReport(
+  pool: ClaudeAccountPool,
+  defaultLabel: string | undefined,
+  now = Date.now(),
+  view: AccountNameView = {},
+): string[] {
   const next = pool.pick()?.id;
   const paused = pool
     .pausedAccounts()
     .map(
       ({ account, until }) =>
-        `- **${account.label ?? account.id}**（已暂停，${account.id}；切换线 5h ${pool.lineOf(account.id, 'five_hour')}% · 周 ${pool.lineOf(account.id, 'seven_day')}%）：⏸ 暂停到 ${formatClock(until)}，到期自动恢复`,
+        `- **${displayName(account, defaultLabel, view, 'sad')}**（已暂停，${account.id}；切换线 5h ${pool.lineOf(account.id, 'five_hour')}% · 周 ${pool.lineOf(account.id, 'seven_day')}%）：⏸ 暂停到 ${formatClock(until)}，到期自动恢复`,
     );
   const active = pool.status().map(({ account, state }, index) => {
-    const name = account.id === DEFAULT_ACCOUNT_ID ? (defaultLabel ?? 'CLI 登录') : (account.label ?? account.id);
+    const refusedAt = pool.refusedUntil(account.id, now);
+    const name = displayName(
+      account,
+      defaultLabel,
+      view,
+      refusedAt !== undefined ? 'sad' : account.id === next ? 'excited' : pool.pastLine(account.id, now) ? 'wronged' : 'happy',
+    );
     const marker = account.id === next ? '▶ ' : '';
     const role = index === 0 ? '主账户' : `备用 ${index}`;
     const lines = `切换线 5h ${pool.lineOf(account.id, 'five_hour')}% · 周 ${pool.lineOf(account.id, 'seven_day')}%`;
@@ -831,20 +911,29 @@ export function accountsReport(pool: ClaudeAccountPool, defaultLabel: string | u
 }
 
 /** `⏸ 已暂停：Mia（backup2）到 11-13 00:00 …` under the `/accounts` table; undefined when none is paused. */
-export function pausedNote(pool: ClaudeAccountPool): string | undefined {
+export function pausedNote(pool: ClaudeAccountPool, view: AccountNameView = {}): string | undefined {
   const paused = pool.pausedAccounts();
   if (paused.length === 0) return undefined;
-  const names = paused.map(({ account, until }) => `${account.label ?? account.id}（${account.id}）到 ${formatClock(until)}`);
+  const names = paused.map(({ account, until }) => `${displayName(account, undefined, view, 'sad')}（${account.id}）到 ${formatClock(until)}`);
   return `⏸ 已暂停：${names.join('、')}，期间不参与选号，到期自动恢复。`;
 }
 
 /** A paused account by id or label, ignoring case: why a switch by name may not go to it. */
-export function findPausedAccount(pool: ClaudeAccountPool, query: string): { id: string; name: string; until: number } | undefined {
+export function findPausedAccount(
+  pool: ClaudeAccountPool,
+  query: string,
+  view: AccountNameView = {},
+): { id: string; name: string; until: number } | undefined {
   const q = query.trim().toLowerCase();
   const hit = pool
     .pausedAccounts()
-    .find(({ account }) => account.id.toLowerCase() === q || account.label?.toLowerCase() === q);
-  return hit ? { id: hit.account.id, name: hit.account.label ?? hit.account.id, until: hit.until } : undefined;
+    .find(
+      ({ account }) =>
+        account.id.toLowerCase() === q ||
+        account.label?.toLowerCase() === q ||
+        (view.private && Object.values(account.nicknames ?? {}).some((n) => n.toLowerCase() === q)),
+    );
+  return hit ? { id: hit.account.id, name: displayName(hit.account, undefined, view, 'sad'), until: hit.until } : undefined;
 }
 
 /** `已暂停到 11-13 00:00` — the reason a switch by name does not go to a paused account. */
@@ -895,8 +984,10 @@ export interface AccountWindowView {
 
 export interface AccountRow {
   id: string;
-  /** The label, or the CLI login's name for `default`. */
+  /** The label, or the CLI login's name for `default`; in the owner's view, its private name for its mood. */
   name: string;
+  /** Other names a switch by name finds it by: the label, and in the owner's view all private names. */
+  aliases?: string[];
   /** Position in the preference order: 0 is the main account. */
   index: number;
   /** New runs go to this account (▶). */
@@ -978,8 +1069,25 @@ function withCap(line: number, kind: WindowKind, cap: LineCap | undefined): numb
   return ceiling !== undefined ? Math.min(line, ceiling) : line;
 }
 
+/** The name an account goes by: its label (the CLI login's name for `default`), or today's private name for the owner. */
+function displayName(
+  account: Pick<ClaudeAccountEntry, 'id' | 'label' | 'nicknames'>,
+  defaultLabel: string | undefined,
+  view: AccountNameView,
+  mood: NicknameMood,
+): string {
+  const nickname = view.private ? nicknameOf(account, mood) : undefined;
+  if (nickname) return nickname;
+  return account.id === DEFAULT_ACCOUNT_ID ? (defaultLabel ?? 'CLI 登录') : (account.label ?? account.id);
+}
+
 /** Every account with its usage, resets, lines, state and switch score, in preference order. */
-export function accountRows(pool: ClaudeAccountPool, defaultLabel: string | undefined, now = Date.now()): AccountRow[] {
+export function accountRows(
+  pool: ClaudeAccountPool,
+  defaultLabel: string | undefined,
+  now = Date.now(),
+  view: AccountNameView = {},
+): AccountRow[] {
   const next = pool.pick()?.id;
   return pool.accounts().map((account, index) => {
     const windows = pool.windowViews(account.id, now);
@@ -988,7 +1096,16 @@ export function accountRows(pool: ClaudeAccountPool, defaultLabel: string | unde
     const pastLine = pool.pastLine(account.id, now)?.kind;
     return {
       id: account.id,
-      name: account.id === DEFAULT_ACCOUNT_ID ? (defaultLabel ?? 'CLI 登录') : (account.label ?? account.id),
+      name: displayName(
+        account,
+        defaultLabel,
+        view,
+        refusedUntil !== undefined ? 'sad' : account.id === next ? 'excited' : pastLine ? 'wronged' : 'happy',
+      ),
+      aliases: [
+        account.id === DEFAULT_ACCOUNT_ID ? defaultLabel : account.label,
+        ...(view.private ? Object.values(account.nicknames ?? {}) : []),
+      ].filter((n): n is string => Boolean(n)),
       index,
       next: account.id === next,
       known,
@@ -1092,7 +1209,11 @@ export function bestSwitchTarget(rows: AccountRow[]): AccountRow | undefined {
 /** An account by id, its label or (for `default`) the CLI login's name; case-insensitive. */
 export function findAccountRow(rows: AccountRow[], query: string): AccountRow | undefined {
   const q = query.trim().toLowerCase();
-  return rows.find((row) => row.id.toLowerCase() === q) ?? rows.find((row) => row.name.toLowerCase() === q);
+  return (
+    rows.find((row) => row.id.toLowerCase() === q) ??
+    rows.find((row) => row.name.toLowerCase() === q) ??
+    rows.find((row) => row.aliases?.some((alias) => alias.toLowerCase() === q))
+  );
 }
 
 /**
