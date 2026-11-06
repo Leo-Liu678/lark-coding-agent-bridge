@@ -51,6 +51,15 @@ const FETCH_DEPTH = '50';
 const MAX_FILE_BYTES = 200_000;
 export const MAX_EXTERNAL_FILE_CHARS = 12_000;
 
+/**
+ * Where reading starts: the library's cursor, else its configured `since`
+ * commit (content up to there was studied another way), else nowhere — all of it.
+ */
+export function startingCursor(library: DreamExternalLibraryConfig, cursor: ExternalCursor | undefined): ExternalCursor | undefined {
+  if (cursor) return cursor;
+  return library.since ? { commit: library.since, learnedAt: 0 } : undefined;
+}
+
 /** Bring `dir` to the library's latest remote commit. Never merges, never pushes. */
 export async function fetchExternalLibrary(
   library: DreamExternalLibraryConfig,

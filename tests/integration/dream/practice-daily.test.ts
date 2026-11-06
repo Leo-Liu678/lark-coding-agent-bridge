@@ -6,7 +6,7 @@ import type { QuotaReading } from '../../../src/agent/quota.js';
 import type { AgentEvent } from '../../../src/agent/types.js';
 import { createDefaultProfileConfig, type ProfileConfig } from '../../../src/config/profile-schema.js';
 import type { AppConfig } from '../../../src/config/schema.js';
-import { collectExternalMaterial, fetchExternalLibrary } from '../../../src/dream/external.js';
+import { collectExternalMaterial, fetchExternalLibrary, startingCursor } from '../../../src/dream/external.js';
 import { prepareCheckout, pushDirect, writeChangelog } from '../../../src/dream/publish.js';
 import { DreamService } from '../../../src/dream/service.js';
 import { git } from '../../../src/git/exec.js';
@@ -133,6 +133,40 @@ describe('external libraries', { timeout: TIMEOUT }, () => {
     expect(text).toContain('P95 | 10 秒 |');
     expect(text).toContain('A & B 中文 &bogus;');
     expect(text).not.toMatch(/color:red|var s|chart|note|<[a-z]/);
+  });
+
+  it('starts from the configured since commit until the library has a cursor of its own', async () => {
+    const remote = await bareRemote('since', { 'incidents/old.md': 'studied by hand', 'README.md': 'r' });
+    const dir = join(root, 'mirror', 'since');
+    const first = await fetchExternalLibrary({ name: 'since', url: remote }, dir);
+    if ('error' in first) throw new Error(first.error);
+    await pushFiles(remote, { 'incidents/new.md': 'new report' }, 'new');
+    const library = { name: 'since', url: remote, since: first.head.slice(0, 7) };
+    const second = await fetchExternalLibrary(library, dir);
+    if ('error' in second) throw new Error(second.error);
+    const read = await collectExternalMaterial({
+      library: 'since',
+      dir,
+      head: second.head,
+      cursor: startingCursor(library, undefined),
+      budget: 100_000,
+      startRef: 1,
+    });
+    expect(read.full).toBe(false);
+    expect(read.files.map((file) => file.path)).toEqual(['incidents/new.md']);
+    // A cursor of its own wins over since.
+    expect(startingCursor(library, { commit: second.head, learnedAt: 1 })).toEqual({ commit: second.head, learnedAt: 1 });
+    // A since the fetched history does not know: everything is read.
+    const unknown = await collectExternalMaterial({
+      library: 'since',
+      dir,
+      head: second.head,
+      cursor: startingCursor({ ...library, since: 'deadbeef' }, undefined),
+      budget: 100_000,
+      startRef: 1,
+    });
+    expect(unknown.full).toBe(true);
+    expect(unknown.files.map((file) => file.path).sort()).toEqual(['README.md', 'incidents/new.md', 'incidents/old.md']);
   });
 
   it('says so when the repository cannot be read', async () => {

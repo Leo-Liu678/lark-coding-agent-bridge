@@ -483,6 +483,13 @@ export interface DreamExternalLibraryConfig {
   url: string;
   /** Branch to follow; absent: the remote's default branch. */
   ref?: string;
+  /**
+   * Commit (7–40 hex digits) to start from while the library has no cursor
+   * yet: only what changed after it is read. For a library whose existing
+   * content was already studied by hand; once a run moves the cursor this
+   * is ignored. Unknown to the fetched history: everything is read.
+   */
+  since?: string;
 }
 
 export interface DreamAutoSettings {
@@ -880,7 +887,7 @@ function resolveExternalLibraries(raw: unknown): DreamExternalLibraryConfig[] {
   const out: DreamExternalLibraryConfig[] = [];
   for (const item of raw) {
     if (!item || typeof item !== 'object') continue;
-    const { name, url, ref } = item as Partial<DreamExternalLibraryConfig>;
+    const { name, url, ref, since } = item as Partial<DreamExternalLibraryConfig>;
     if (typeof name !== 'string' || !EXTERNAL_NAME_RE.test(name.trim())) continue;
     if (typeof url !== 'string' || !url.trim() || /\s/.test(url.trim())) continue;
     if (out.some((entry) => entry.name === name.trim())) continue;
@@ -888,6 +895,7 @@ function resolveExternalLibraries(raw: unknown): DreamExternalLibraryConfig[] {
       name: name.trim(),
       url: url.trim(),
       ...(typeof ref === 'string' && ref.trim() ? { ref: ref.trim() } : {}),
+      ...(typeof since === 'string' && /^[0-9a-f]{7,40}$/i.test(since.trim()) ? { since: since.trim().toLowerCase() } : {}),
     });
   }
   return out;

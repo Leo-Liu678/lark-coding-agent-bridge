@@ -22,6 +22,7 @@ import {
   type AppConfig,
   type DreamAutoSettings,
   type DreamSettings,
+  type DreamExternalLibraryConfig,
 } from '../config/schema';
 import { log } from '../core/logger';
 import { maskUrlCredentials } from '../knowledge/libraries';
@@ -35,6 +36,7 @@ import {
   describeExternal,
   fetchExternalLibrary,
   listLocalSkills,
+  startingCursor,
   type ExternalCursor,
   type ExternalMaterial,
 } from './external';
@@ -1295,7 +1297,7 @@ export class DreamService {
     }
 
     const materials: ExternalMaterial[] = [];
-    const fetchedLibraries: Array<{ name: string; dir: string; head: string; waiting: number }> = [];
+    const fetchedLibraries: Array<{ library: DreamExternalLibraryConfig; dir: string; head: string; waiting: number }> = [];
     for (const library of settings.external) {
       if (ctx.signal.aborted) return outcome;
       const dir = join(this.deps.workDir, 'external', library.name);
@@ -1309,24 +1311,25 @@ export class DreamService {
         library: library.name,
         dir,
         head: fetched.head,
-        cursor: this.state.externalCursor(library.name),
+        cursor: startingCursor(library, this.state.externalCursor(library.name)),
         budget: 0,
         startRef: 1,
       });
-      fetchedLibraries.push({ name: library.name, dir, head: fetched.head, waiting: listed.pending.length });
+      fetchedLibraries.push({ library, dir, head: fetched.head, waiting: listed.pending.length });
     }
     // Half the run's input, split among the libraries that have something new;
     // what one leaves unused goes to the next.
     let remaining = Math.floor(settings.maxInputChars / 2);
     let sharing = fetchedLibraries.filter((library) => library.waiting > 0).length;
     let nextRef = 1;
-    for (const library of fetchedLibraries) {
-      const share = library.waiting > 0 && sharing > 0 ? Math.floor(remaining / sharing--) : 0;
+    for (const fetchedLibrary of fetchedLibraries) {
+      const { library } = fetchedLibrary;
+      const share = fetchedLibrary.waiting > 0 && sharing > 0 ? Math.floor(remaining / sharing--) : 0;
       const material = await collectExternalMaterial({
         library: library.name,
-        dir: library.dir,
-        head: library.head,
-        cursor: this.state.externalCursor(library.name),
+        dir: fetchedLibrary.dir,
+        head: fetchedLibrary.head,
+        cursor: startingCursor(library, this.state.externalCursor(library.name)),
         budget: share,
         startRef: nextRef,
       });
