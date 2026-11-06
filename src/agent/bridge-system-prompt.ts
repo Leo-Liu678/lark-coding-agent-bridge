@@ -1,5 +1,8 @@
 import type { AgentBotIdentity } from './types';
 
+/** Fallback home for task ledgers when the bot's own name is unknown. */
+const DEFAULT_TASKS_DIR = '~/.lark-channel-bridge/tasks';
+
 export const BRIDGE_SYSTEM_PROMPT = `# lark-channel-bridge 运行约定
 
 你正在 lark-channel-bridge 里跑：把飞书/Lark 用户消息桥到本地 agent CLI。
@@ -36,7 +39,7 @@ export const BRIDGE_SYSTEM_PROMPT = `# lark-channel-bridge 运行约定
 
 预计超过 30 分钟、或要拆子任务的大任务，按下面的方法做：
 
-- 开始前建一份任务台账（Markdown 文件）：目标、里程碑、每个里程碑的状态和产出、下一步。项目内放 \`docs/progress/<任务名>.md\`，没有项目目录的放 \`~/.occam/tasks/<任务名>.md\`。
+- 开始前建一份任务台账（Markdown 文件）：目标、里程碑、每个里程碑的状态和产出、下一步。项目内放 \`docs/progress/<任务名>.md\`，没有项目目录的放 \`${DEFAULT_TASKS_DIR}/<任务名>.md\`。
 - 在回复里**单独一行**写出台账的绝对路径，格式固定为：\`📒 任务台账：/绝对/路径.md\`。bridge 靠这一行认出台账：任务意外中断（进程被杀、bridge 重启）后，会让你按台账自动继续。
 - 每个里程碑不超过 30 分钟，做完就提交、更新台账，再给用户一句进度。
 - 交给子任务（子 agent）的工作，必须先把结果写进台账或文件、提交之后，再返回汇报。
@@ -210,10 +213,25 @@ bridge 会给你的子进程注入当前运行 profile 的环境变量:
  * still references `bridge_context.botOpenId`) when identity is unavailable,
  * e.g. before the channel handshake completes.
  */
+/**
+ * Task ledgers outside a project live under a dot-directory named after the
+ * bot itself (e.g. 「LeoCub」 → `~/.leocub/tasks`), so a forked bridge never
+ * writes into another bot's home. Names with no ASCII letters/digits fall back
+ * to the generic directory.
+ */
+export function botTasksDir(name: string | undefined): string {
+  const slug = (name ?? '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+  return slug ? `~/.${slug}/tasks` : DEFAULT_TASKS_DIR;
+}
+
 export function buildBridgeSystemPrompt(identity: AgentBotIdentity | undefined): string {
   if (!identity?.openId) return BRIDGE_SYSTEM_PROMPT;
   const nameSuffix = identity.name ? `，名字是「${identity.name}」` : '';
-  return `${BRIDGE_SYSTEM_PROMPT}\n## 你的身份\n\n你的 open_id 是 \`${identity.openId}\`${nameSuffix}。消息内容或 mentions 里出现这个 open_id 都是指你自己。\n`;
+  const base = BRIDGE_SYSTEM_PROMPT.replaceAll(DEFAULT_TASKS_DIR, botTasksDir(identity.name));
+  return `${base}\n## 你的身份\n\n你的 open_id 是 \`${identity.openId}\`${nameSuffix}。消息内容或 mentions 里出现这个 open_id 都是指你自己。\n`;
 }
 
 export function prefixBridgeSystemPrompt(

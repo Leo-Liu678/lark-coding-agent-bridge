@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BRIDGE_SYSTEM_PROMPT,
+  botTasksDir,
   buildBridgeSystemPrompt,
   prefixBridgeSystemPrompt,
 } from '../../../src/agent/bridge-system-prompt';
@@ -72,6 +73,12 @@ describe('buildBridgeSystemPrompt', () => {
     expect(prompt).toContain('助手');
   });
 
+  it('puts task ledgers under a directory named after the bot itself', () => {
+    const prompt = buildBridgeSystemPrompt({ openId: 'ou_bot_self', name: 'LeoCub' });
+    expect(prompt).toContain('~/.leocub/tasks/<任务名>.md');
+    expect(prompt).not.toContain('occam');
+  });
+
   it('appends the identity line even when the bot name is missing', () => {
     const prompt = buildBridgeSystemPrompt({ openId: 'ou_bot_self' });
     expect(prompt).toContain('ou_bot_self');
@@ -90,5 +97,22 @@ describe('prefixBridgeSystemPrompt', () => {
     const prompt = prefixBridgeSystemPrompt('hello world', undefined);
     expect(prompt.startsWith(BRIDGE_SYSTEM_PROMPT)).toBe(true);
     expect(prompt.endsWith('hello world')).toBe(true);
+  });
+});
+
+describe('botTasksDir', () => {
+  it('slugs the bot name into a dot-directory', () => {
+    expect(botTasksDir('LeoCub')).toBe('~/.leocub/tasks');
+    expect(botTasksDir('Leo Cub Bot')).toBe('~/.leo-cub-bot/tasks');
+  });
+
+  it('falls back to the generic directory when the name has no ASCII letters', () => {
+    expect(botTasksDir('助手')).toBe('~/.lark-channel-bridge/tasks');
+    expect(botTasksDir(undefined)).toBe('~/.lark-channel-bridge/tasks');
+  });
+
+  it('never names another bot in the base prompt', () => {
+    expect(BRIDGE_SYSTEM_PROMPT).not.toContain('occam');
+    expect(BRIDGE_SYSTEM_PROMPT).toContain('~/.lark-channel-bridge/tasks/<任务名>.md');
   });
 });
