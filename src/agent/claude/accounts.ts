@@ -1069,7 +1069,7 @@ function withCap(line: number, kind: WindowKind, cap: LineCap | undefined): numb
   return ceiling !== undefined ? Math.min(line, ceiling) : line;
 }
 
-/** The name an account goes by: its label (the CLI login's name for `default`), or today's private name for the owner. */
+/** The name an account goes by: its label (for `default` without one, the CLI login's name), or today's private name for the owner. */
 function displayName(
   account: Pick<ClaudeAccountEntry, 'id' | 'label' | 'nicknames'>,
   defaultLabel: string | undefined,
@@ -1078,7 +1078,8 @@ function displayName(
 ): string {
   const nickname = view.private ? nicknameOf(account, mood) : undefined;
   if (nickname) return nickname;
-  return account.id === DEFAULT_ACCOUNT_ID ? (defaultLabel ?? 'CLI 登录') : (account.label ?? account.id);
+  if (account.label) return account.label;
+  return account.id === DEFAULT_ACCOUNT_ID ? (defaultLabel ?? 'CLI 登录') : account.id;
 }
 
 /** Every account with its usage, resets, lines, state and switch score, in preference order. */
@@ -1103,7 +1104,8 @@ export function accountRows(
         refusedUntil !== undefined ? 'sad' : account.id === next ? 'excited' : pastLine ? 'wronged' : 'happy',
       ),
       aliases: [
-        account.id === DEFAULT_ACCOUNT_ID ? defaultLabel : account.label,
+        account.label,
+        account.id === DEFAULT_ACCOUNT_ID ? defaultLabel : undefined,
         ...(view.private ? Object.values(account.nicknames ?? {}) : []),
       ].filter((n): n is string => Boolean(n)),
       index,
