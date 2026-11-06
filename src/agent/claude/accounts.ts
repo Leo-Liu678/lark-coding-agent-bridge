@@ -77,13 +77,14 @@ export const DEFAULT_LINES: SwitchLines = { five_hour: 98, seven_day: 98 };
 export const GRACE_LINE = 98;
 /**
  * How close to its reset a window counts as about to reset, by the hour of
- * day on the bridge's clock (owner's choice, 2026-10-30): shorter in the
+ * day on the bridge's clock (owner's choice, 2026-10-30; the week's daytime
+ * span 2 → 4 hours on 2026-11-06): shorter in the
  * daytime, when the accounts' owners may still want what their line keeps
  * back. `day` is [from, to) in hours.
  */
 export const GRACE_SPANS: Record<WindowKind, { day: readonly [number, number]; dayMs: number; otherMs: number }> = {
   five_hour: { day: [8, 21], dayMs: 30 * 60_000, otherMs: 3_600_000 },
-  seven_day: { day: [8, 20], dayMs: 2 * 3_600_000, otherMs: 6 * 3_600_000 },
+  seven_day: { day: [8, 20], dayMs: 4 * 3_600_000, otherMs: 6 * 3_600_000 },
 };
 
 /** The near-reset span of `kind` at `now` ({@link GRACE_SPANS}). */

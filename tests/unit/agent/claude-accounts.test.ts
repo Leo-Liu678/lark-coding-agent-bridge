@@ -1532,11 +1532,11 @@ describe('a window about to reset opens its switch line', () => {
     // 98% and up is past the opened line too.
     pool.observe('backup4', limit({ windows: [{ kind: 'five_hour', usedPercent: 98, resetsAt: NOW + 5 * MIN }] }));
     expect(pool.pastLine('backup4', NOW)?.kind).toBe('five_hour');
-    // The week: its last 2 hours from 8 to 20, its last 6 hours otherwise.
-    pool.observe('default', limit({ windows: [{ kind: 'seven_day', usedPercent: 93, resetsAt: NOW + 90 * MIN }] }));
+    // The week: its last 4 hours from 8 to 20, its last 6 hours otherwise.
+    pool.observe('default', limit({ windows: [{ kind: 'seven_day', usedPercent: 93, resetsAt: NOW + 3.5 * HOUR }] }));
     expect(pool.lineOf('default', 'seven_day', NOW)).toBe(GRACE_LINE);
     expect(pool.pastLine('default', NOW)).toBeUndefined();
-    pool.observe('default', limit({ windows: [{ kind: 'seven_day', usedPercent: 93, resetsAt: NOW + 3 * HOUR }] }));
+    pool.observe('default', limit({ windows: [{ kind: 'seven_day', usedPercent: 93, resetsAt: NOW + 4.5 * HOUR }] }));
     expect(pool.pastLine('default', NOW)?.kind).toBe('seven_day');
     pool.observe('default', limit({ windows: [{ kind: 'seven_day', usedPercent: 93, resetsAt: NIGHT + 5 * HOUR }] }));
     expect(pool.pastLine('default', NIGHT)).toBeUndefined();

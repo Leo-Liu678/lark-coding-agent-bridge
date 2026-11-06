@@ -68,7 +68,7 @@ export function agentAccountsReport(profileConfig: AccountProfile, profileDir: s
   return (ACCOUNT_REPORTS[profileConfig.agentKind]?.(profileDir) ?? Promise.resolve(undefined)).catch(() => undefined);
 }
 
-const SCORE_NOTE = `选号按「先到期先用」：本周额度先重置的账户先用，用到切换线再换下一个，到期没用掉的额度就白费了，晚重置的账户之后还能用。得分 = ${SWITCH_SCORE_WEIGHTS.weekExpiring} × 本周重置临近度 × 足额系数 + ${SWITCH_SCORE_WEIGHTS.weekRoom} × 本周余量 + ${SWITCH_SCORE_WEIGHTS.fiveHourRoom} × 5 小时余量。余量 = 1 − 用量 ÷ 切换线，临近度 = 1 − 距本周重置 ÷ 7 天，足额系数 = min(1, 本周余量 ÷ ${WORTH_MOVING_ROOM})（剩不到切换线一成的不值得专门换号）；窗口临近重置时（5 小时窗口：8–21 点剩不到 30 分钟、其他时间不到 1 小时；本周：8–20 点剩不到 2 小时、其他时间不到 6 小时）切换线放宽到 ${GRACE_LINE}%，5 小时余量还按 1 − 距重置 ÷ 临近时长 向满额靠拢，表里写成「原线→${GRACE_LINE}%」，反正重置后额度就回来了。已到任一切换线的账户记 0 分；没运行过的账户余量按一半算。`;
+const SCORE_NOTE = `选号按「先到期先用」：本周额度先重置的账户先用，用到切换线再换下一个，到期没用掉的额度就白费了，晚重置的账户之后还能用。得分 = ${SWITCH_SCORE_WEIGHTS.weekExpiring} × 本周重置临近度 × 足额系数 + ${SWITCH_SCORE_WEIGHTS.weekRoom} × 本周余量 + ${SWITCH_SCORE_WEIGHTS.fiveHourRoom} × 5 小时余量。余量 = 1 − 用量 ÷ 切换线，临近度 = 1 − 距本周重置 ÷ 7 天，足额系数 = min(1, 本周余量 ÷ ${WORTH_MOVING_ROOM})（剩不到切换线一成的不值得专门换号）；窗口临近重置时（5 小时窗口：8–21 点剩不到 30 分钟、其他时间不到 1 小时；本周：8–20 点剩不到 4 小时、其他时间不到 6 小时）切换线放宽到 ${GRACE_LINE}%，5 小时余量还按 1 − 距重置 ÷ 临近时长 向满额靠拢，表里写成「原线→${GRACE_LINE}%」，反正重置后额度就回来了。已到任一切换线的账户记 0 分；没运行过的账户余量按一半算。`;
 
 /** `5 小时 / 本周` — the windows a switch by name raised. */
 function boostedWindows(boost: NonNullable<ClaudeAccountEntry['boost']>): string {
