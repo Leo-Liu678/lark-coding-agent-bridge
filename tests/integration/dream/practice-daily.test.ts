@@ -114,6 +114,27 @@ describe('external libraries', { timeout: TIMEOUT }, () => {
     expect(rest.pending).toEqual([]);
   });
 
+  it('reads HTML reports as plain text and skips other files', async () => {
+    const remote = await bareRemote('ops', {
+      'incidents/2026-11-04-td.html':
+        '<!doctype html><html><head><title>t</title><style>.x{color:red}</style><script>var s = "<b>";</script></head>' +
+        '<body><!-- note --><h1>EUR TD 重启</h1><svg><text>chart</text></svg><table><tr><th>指标</th><th>值</th></tr>' +
+        '<tr><td>P95</td><td>10&nbsp;秒</td></tr></table><p>A &amp; B &#x4e2d;&#25991; &bogus;</p></body></html>',
+      'records/empty.htm': '<html><body><script>only()</script></body></html>',
+      'assets/logo.png': 'png',
+    });
+    const dir = join(root, 'mirror', 'ops');
+    const fetched = await fetchExternalLibrary({ name: 'ops', url: remote }, dir);
+    if ('error' in fetched) throw new Error(fetched.error);
+    const read = await collectExternalMaterial({ library: 'ops', dir, head: fetched.head, budget: 100_000, startRef: 1 });
+    expect(read.files.map((file) => file.path)).toEqual(['incidents/2026-11-04-td.html']);
+    const text = read.files[0]?.content ?? '';
+    expect(text).toContain('EUR TD 重启');
+    expect(text).toContain('P95 | 10 秒 |');
+    expect(text).toContain('A & B 中文 &bogus;');
+    expect(text).not.toMatch(/color:red|var s|chart|note|<[a-z]/);
+  });
+
   it('says so when the repository cannot be read', async () => {
     const result = await fetchExternalLibrary({ name: 'gone', url: join(root, 'missing.git') }, join(root, 'mirror', 'gone'));
     expect(result).toHaveProperty('error');
