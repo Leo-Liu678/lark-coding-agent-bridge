@@ -172,6 +172,18 @@ import {
 } from './supplement';
 import { applyRecall, parseRecallEvent, RECALL_EVENT, RecalledMessages, settleEarlyRecalls } from './recall';
 import {
+  applyMenuPrefix,
+  BOT_MENU_EVENT,
+  MENU_CANCEL_KEY,
+  MENU_CANCELLED_TEXT,
+  MENU_NOTHING_TO_CANCEL_TEXT,
+  menuArmedText,
+  menuKeyToPrefix,
+  MenuPrefixes,
+  menuUnknownKeyText,
+  parseBotMenuEvent,
+} from './bot-menu';
+import {
   EDIT_EVENT,
   type EditEvent,
   EditedMessages,
@@ -574,6 +586,7 @@ export async function startChannel(deps: StartChannelDeps): Promise<BridgeChanne
   channelRef = channel;
   // 撤回消息: recently recalled ids, for messages caught between queue and run.
   const recalled = new RecalledMessages();
+  const menuPrefixes = new MenuPrefixes();
   const media = new MediaCache(channel, deps.appPaths?.mediaDir);
 
   // Pending → run handoff: while a run is active on a chat, block its pending
@@ -731,6 +744,7 @@ export async function startChannel(deps: StartChannelDeps): Promise<BridgeChanne
           pool,
           autoResumer,
           recalled,
+          menuPrefixes,
         }),
       ).catch((err) => log.fail('intake', err));
     },
@@ -829,6 +843,41 @@ export async function startChannel(deps: StartChannelDeps): Promise<BridgeChanne
     });
   } else {
     log.warn('recall', 'hook-unavailable', { reason: 'channel 不支持 onRawEvent' });
+  }
+
+  // 机器人自定义菜单: a click arms a slash prefix for the clicker's next p2p
+  // message (see bot-menu.ts). Rides the same connection as recall above.
+  if (typeof channel.onRawEvent === 'function') {
+    channel.onRawEvent(BOT_MENU_EVENT, async (raw) => {
+      const evt = parseBotMenuEvent(raw);
+      if (!evt) {
+        log.warn('menu', 'unparsed', {});
+        return;
+      }
+      const access = canUseDm(controls.profileConfig, controls, evt.operatorOpenId);
+      if (!access.ok) {
+        log.info('menu', 'access-denied', { sender: evt.operatorOpenId.slice(-6), reason: access.reason });
+        return;
+      }
+      let reply: string;
+      if (evt.eventKey.toLowerCase() === MENU_CANCEL_KEY) {
+        reply = menuPrefixes.disarm(evt.operatorOpenId) ? MENU_CANCELLED_TEXT : MENU_NOTHING_TO_CANCEL_TEXT;
+        log.info('menu', 'cancel', { sender: evt.operatorOpenId.slice(-6) });
+      } else {
+        const prefix = menuKeyToPrefix(evt.eventKey);
+        if (prefix) {
+          menuPrefixes.arm(evt.operatorOpenId, prefix);
+          reply = menuArmedText(prefix);
+          log.info('menu', 'armed', { sender: evt.operatorOpenId.slice(-6), prefix });
+        } else {
+          reply = menuUnknownKeyText(evt.eventKey);
+          log.warn('menu', 'unknown-key', { eventKey: evt.eventKey });
+        }
+      }
+      await channel
+        .send(evt.operatorOpenId, { text: reply })
+        .catch((err) => log.warn('menu', 'reply-failed', { err: String(err) }));
+    });
   }
 
   // 消息被编辑: rides the same connection as the recall events above, and
@@ -1251,6 +1300,8 @@ interface IntakeDeps {
   pool: ProcessPool;
   autoResumer?: AutoResumer;
   recalled?: RecalledMessages;
+  /** Slash prefixes armed by 机器人自定义菜单 clicks, applied to the clicker's next p2p message. */
+  menuPrefixes?: MenuPrefixes;
 }
 
 type LogThreadModeOverride = (input: {
@@ -1302,7 +1353,7 @@ async function intakeMessage(deps: IntakeDeps): Promise<void> {
   // Carry the (possibly backfilled) threadId on the message so the batched
   // flush — which reads `firstMsg.threadId` for reply routing and topic scope —
   // sees it.
-  const emsg: NormalizedMessage = threadId === msg.threadId ? msg : { ...msg, threadId };
+  let emsg: NormalizedMessage = threadId === msg.threadId ? msg : { ...msg, threadId };
   // Some groups are converted into topic groups after creation. In that state
   // getChatMode can lag behind the message event shape, so threadId is the
   // stronger signal for topic-scoped sessions and reply routing.
@@ -1368,6 +1419,17 @@ async function intakeMessage(deps: IntakeDeps): Promise<void> {
   ) {
     log.info('intake', 'skip-no-mention', { scope, chatType: msg.chatType });
     return;
+  }
+
+  // 机器人自定义菜单: a prefix armed by a menu click goes in front of the
+  // clicker's next p2p message, before commands and topic prefixes are read.
+  if (msg.chatType === 'p2p' && deps.menuPrefixes) {
+    const prefix = deps.menuPrefixes.take(msg.senderId);
+    if (prefix) {
+      const content = applyMenuPrefix(emsg.content, prefix);
+      log.info('intake', 'menu-prefix', { scope, prefix, applied: content !== emsg.content });
+      emsg = { ...emsg, content };
+    }
   }
 
   // A merge_forward whose sub-messages the SDK could not fetch (transient
