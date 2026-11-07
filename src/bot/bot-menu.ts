@@ -125,6 +125,22 @@ export function menuCommandText(command: string): string {
 export const MENU_CANCELLED_TEXT = '已取消菜单选择。';
 export const MENU_NOTHING_TO_CANCEL_TEXT = '当前没有待用的菜单选择。';
 
+/**
+ * Whether `text` is one of the notices above. They are bridge UI, not
+ * conversation: read back as chat context, 「已选「/new-topic」…下一条消息会按它处理」
+ * tells the agent to run that skill on the next message — which the bridge
+ * already did — so a topic the menu opened went on to open a second one.
+ */
+export function isMenuNoticeText(text: string): boolean {
+  const t = text.trim();
+  return (
+    /^已选「[^」]+」，直接发内容即可，下一条消息会按它处理/.test(t) ||
+    /^菜单：\/\S+$/.test(t) ||
+    t === MENU_CANCELLED_TEXT ||
+    t === MENU_NOTHING_TO_CANCEL_TEXT
+  );
+}
+
 export function menuUnknownKeyText(eventKey: string): string {
   return `菜单项「${eventKey}」没有对应的处理：event_key 应填技能名，多个用 + 连接，例如 new-topic+statechart。`;
 }

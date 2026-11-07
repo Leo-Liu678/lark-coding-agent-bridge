@@ -112,6 +112,25 @@ describe('fetchChatContext', () => {
     expect(result.truncated).toBe(false);
   });
 
+  it('drops the bot’s own menu notices, so a menu-opened topic does not reopen itself', async () => {
+    const channel = fakeChannel([
+      [
+        item('om_armed', 'cli_app', UNTIL - 1000, '已选「/new-topic」，直接发内容即可，下一条消息会按它处理（10 分钟内有效）。', 'app'),
+        item('om_cmd', 'cli_app', UNTIL - 1500, '菜单：/reset', 'app'),
+        item('om_answer', 'cli_app', UNTIL - 2000, 'earlier answer', 'app'),
+        item('om_user', 'ou_a', UNTIL - 3000, '已选「/new-topic」，直接发内容即可，下一条消息会按它处理'),
+      ],
+    ]);
+
+    const result = await fetchChatContext(
+      channel,
+      { ...catchUp, window: 'parent_recent', afterMs: UNTIL - 10_000, excludeOwn: false },
+      { chatId: 'oc_1', ownAppId: 'cli_app' },
+    );
+
+    expect(result.messages.map((m) => m.messageId)).toEqual(['om_user', 'om_answer']);
+  });
+
   it('names the bot’s own messages when a first engagement keeps them', async () => {
     const channel = fakeChannel([[item('om_own', 'cli_app', UNTIL - 2000, 'earlier answer', 'app')]]);
 

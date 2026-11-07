@@ -3,6 +3,7 @@ import type { ApiMessageItem, LarkChannel } from '@larksuite/channel';
 import type { BridgePromptChatContextWindow } from '../agent/prompt';
 import { log } from '../core/logger';
 import { writeFileAtomic } from '../platform/atomic-write';
+import { isMenuNoticeText } from './bot-menu';
 import { fetchSubTreeItems, normalizeItemToQuoted, preExpandInteractive, type QuotedContext } from './quote';
 
 /**
@@ -235,7 +236,19 @@ function isRelevant(
   if (created > plan.untilMs) return false;
   if (plan.afterMs !== undefined && created <= plan.afterMs) return false;
   if (plan.excludeOwn && ownAppId && item.sender?.id === ownAppId) return false;
+  if (ownAppId && item.sender?.id === ownAppId && isOwnMenuNotice(item)) return false;
   return true;
+}
+
+/** The bot's own menu notices are UI, not conversation (see `isMenuNoticeText`). */
+function isOwnMenuNotice(item: ApiMessageItem): boolean {
+  if (item.msg_type !== 'text') return false;
+  try {
+    const parsed = JSON.parse(String(item.body?.content ?? '')) as { text?: unknown };
+    return typeof parsed.text === 'string' && isMenuNoticeText(parsed.text);
+  } catch {
+    return false;
+  }
 }
 
 /**
