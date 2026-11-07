@@ -56,6 +56,17 @@ describe('buildDreamScopePrompt', () => {
     expect(built.prompt).not.toContain('ghp_');
     expect(built.prompt).toContain('[REDACTED]');
   });
+
+  it('says what memory is for and keeps verified failure lessons instead of banning failures', () => {
+    // Anthropic, "The components of agent memory": telling the model what memory
+    // is for beats fixed salience rules, and "record only failures"-style rules
+    // cut the gain — so purpose first, and failures are fine once they carry a cause.
+    expect(built.prompt).toContain('记忆是做什么用的');
+    expect(built.prompt).toContain('试过 X 不行，原因是 Y，应改用 Z');
+    expect(built.prompt).toContain('只有「X 失败了」而没有结论的不记');
+    expect(built.prompt).not.toContain('失败的假设');
+    expect(built.prompt).toContain('关键的命令、ID、数值照原文保留');
+  });
 });
 
 describe('parseDreamOutput', () => {
