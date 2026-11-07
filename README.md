@@ -423,6 +423,8 @@ The Skill libraries card on the Web console's Configuration page does the same: 
 
 Rules agreed in a chat, verified conclusions and procedures that worked are easy to forget to `/memory add`. With Memory Consolidation on, an admin can have the bot go back over finished conversations and turn what is worth keeping into **Draft PRs for review**: memory and notes against the knowledge repository, skills against a shared skill library. Nothing takes effect before a human merges; the bridge never merges.
 
+Why it is built this way, how it maps to Anthropic's *The components of agent memory*, and the phased plan: [`docs/memory-consolidation.md`](docs/memory-consolidation.md).
+
 ```text
 /practice                 # switch, target repositories, limits, why automatic rounds did not run, recent runs, PRs awaiting review
 /practice run             # run one round now; the outcome is posted back in the DM

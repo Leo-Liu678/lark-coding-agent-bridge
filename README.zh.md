@@ -423,6 +423,8 @@ Claude 和 Codex 读的是同一份 skill 索引，一个文件同时服务两�
 
 会话里定下的约定、验证过的结论、做成功的流程，过后常常没人记得 `/memory add`。打开记忆整合后，管理员可以让 bot 回头把已经结束的会话整理一遍，把值得长期保留的内容做成**待审核的 Draft PR**：记忆和笔记进知识库仓库，skill 进共享 skill 库。合并之前什么都不生效，bridge 从不自动合并。
 
+设计依据（对照 Anthropic《The components of agent memory》）和分阶段计划见英文文档 [`docs/memory-consolidation.md`](docs/memory-consolidation.md)。
+
 ```text
 /practice                 # 开关、目标仓库、每轮上限、自动整理为什么没跑、最近几轮结果、待审核 PR 数
 /practice run             # 立即整理一轮，完成后在私聊里回复结果
