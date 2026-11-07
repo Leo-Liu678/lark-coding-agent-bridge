@@ -10,7 +10,7 @@ import { isPlausibleGitUrl } from '../knowledge/sync';
 import { normalizeText, skillDirName, type MemoryAddition, type SkillProposal } from './proposal';
 
 /**
- * The deterministic publishing half of 课堂精练: a fresh checkout of the target
+ * The deterministic publishing half of 记忆整合: a fresh checkout of the target
  * repository's latest remote state, files written from validated proposals
  * only, one commit on `dream/<batch>`, a push of that new branch and a Draft
  * PR. Never a force push, never a merge. The default branch is only written
@@ -125,7 +125,7 @@ export async function writeKnowledgeDraft(
     while (taken.has(id)) id = randomBytes(3).toString('hex');
     const header =
       addition.target === 'note'
-        ? `# ${addition.note}\n\n课堂精练归纳的项目事实，范围 \`${addition.scopeId}\`。\n`
+        ? `# ${addition.note}\n\n记忆整合归纳的项目事实，范围 \`${addition.scopeId}\`。\n`
         : defaultMemoryHeader(
             addition.target === 'profile' ? { kind: 'profile' } : { kind: 'chat', scopeId: addition.scopeId },
           );
@@ -238,7 +238,7 @@ export async function prependEntry(
 }
 
 export const CHANGELOG_FILE = 'CHANGELOG.md';
-const CHANGELOG_HEADER = '# 更新日志\n\n课堂精练每一批对本仓库的改动，最新的在最前面。由 lark-channel-bridge 自动写入。\n';
+const CHANGELOG_HEADER = '# 更新日志\n\n记忆整合每一批对本仓库的改动，最新的在最前面。由 lark-channel-bridge 自动写入。\n';
 
 /**
  * publish: push — put the batch commit onto `base` on the remote. When the

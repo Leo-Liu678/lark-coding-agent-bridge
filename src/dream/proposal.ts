@@ -116,7 +116,7 @@ export interface ValidateContext {
   /** Every skill must declare `argument-hint` in its frontmatter. */
   requireArgumentHint?: boolean;
   /**
-   * 课前学习: the input is another bot's repository, not a conversation of
+   * 外部学习: the input is another bot's repository, not a conversation of
    * ours. Its knowledge may only become notes — never a rule every chat is
    * told — and only skills of this library may be updated.
    */
@@ -301,9 +301,9 @@ function validateSkillItem(raw: unknown, ctx: ValidateContext): SkillProposal | 
   if (action === 'create' && ctx.reservedSkillNames?.has(name)) return { error: `本机已装有同名技能 ${name}，不再新建` };
   if (action === 'update') {
     if (!existing) return { error: `没有名为 ${name} 的 skill 可更新` };
-    if (!existing.source) return { error: `${name} 是本 profile 自带的 skill，不在共享库里，课堂精练不改它` };
+    if (!existing.source) return { error: `${name} 是本 profile 自带的 skill，不在共享库里，记忆整合不改它` };
     if (ctx.external && existing.source !== ctx.external.ownLibrary) {
-      return { error: `${name} 来自 skill 库 ${existing.source}，不是自己的库，课前学习只更新自己的 skill` };
+      return { error: `${name} 来自 skill 库 ${existing.source}，不是自己的库，外部学习只更新自己的 skill` };
     }
   }
   return {

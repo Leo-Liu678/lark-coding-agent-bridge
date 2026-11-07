@@ -345,7 +345,7 @@ const LEARNED = JSON.stringify({
   ],
 });
 
-describe('课堂精练 每日模式 with 课前学习 and publish: push', { timeout: TIMEOUT }, () => {
+describe('记忆整合 每日模式 with 外部学习 and publish: push', { timeout: TIMEOUT }, () => {
   it('learns from the external library, fixes own skills, pushes to main with changelogs and tells the owner', async () => {
     const clone = join(root, 'local-occam');
     const unrelated = join(root, 'local-other');
@@ -377,13 +377,13 @@ describe('课堂精练 每日模式 with 课前学习 and publish: push', { time
     expect(await showFile(h.knowledgeRemote, 'main', 'notes/external/circuit-breaker.md')).toContain('先查熔断');
     const knowledgeLog = await showFile(h.knowledgeRemote, 'main', 'CHANGELOG.md');
     expect(knowledgeLog).toContain('（自动）');
-    expect(knowledgeLog).toMatch(/课前学习 cc@[0-9a-f]{7}（2 个文件）/);
+    expect(knowledgeLog).toMatch(/外部学习 cc@[0-9a-f]{7}（2 个文件）/);
     expect(knowledgeLog).toContain('笔记 `notes/external/circuit-breaker.md`');
     // 梦境日记: the same night, newest first, also kept with the run.
     const diary = await showFile(h.knowledgeRemote, 'main', 'DREAMS.md');
     expect(diary).toMatch(/^# 梦境日记/);
     expect(diary).toContain(`批次 \`${run.id}\`（自动）`);
-    expect(diary).toContain('课前学习 cc 2 个文件');
+    expect(diary).toContain('外部学习 cc 2 个文件');
     expect(diary).toContain('当晚生效：笔记 1 条、技能 2 个');
     expect(run.diary).toContain('**深睡**');
     expect(h.service.diary()).toMatchObject({ id: run.id });
@@ -402,7 +402,7 @@ describe('课堂精练 每日模式 with 课前学习 and publish: push', { time
     expect((await git(unrelated, ['log', '--oneline'])).stdout.trim().split('\n')).toHaveLength(1);
     expect(h.told).toHaveLength(1);
     expect(h.told[0]).toMatchObject({ chat: 'ou_owner' });
-    expect(h.told[0]!.text).toContain('课前学习 cc：读了 2 个文件');
+    expect(h.told[0]!.text).toContain('外部学习 cc：读了 2 个文件');
 
     const status = await h.service.status();
     expect(status.external[0]).toMatchObject({ name: 'cc', cursor: { commit: run.external![0]!.head, pending: 0 } });
@@ -416,7 +416,7 @@ describe('课堂精练 每日模式 with 课前学习 and publish: push', { time
     if ('error' in again) throw new Error(again.error);
     await h.service.idle();
     expect(h.prompts).toHaveLength(1);
-    expect(h.service.runs()[0]!.note).toContain('课前学习没有值得吸收的新内容');
+    expect(h.service.runs()[0]!.note).toContain('外部学习没有值得吸收的新内容');
 
     // The library moves on: only the changed file is read.
     await pushFiles(h.externalRemote, { 'notes/ops.md': '夜间光伏低于 100W 显示为 0' }, 'update');
@@ -466,7 +466,7 @@ describe('课堂精练 每日模式 with 课前学习 and publish: push', { time
     expect(check).toMatchObject({ block: 'quota' });
     expect(check.reason).toContain('85%');
     expect(h.told).toHaveLength(1);
-    expect(h.told[0]!.text).toContain('今天的课堂精练跳过');
+    expect(h.told[0]!.text).toContain('今天的记忆整合跳过');
     expect(await h.service.checkAuto()).toMatchObject({ block: 'window-used' });
     expect(h.told).toHaveLength(1);
     expect(h.prompts).toHaveLength(0);
@@ -511,7 +511,7 @@ describe('课堂精练 每日模式 with 课前学习 and publish: push', { time
     await h.service.idle();
     expect(h.prompts).toHaveLength(0);
     const run = h.service.runs()[0]!;
-    expect(JSON.stringify(run)).toContain('各账户额度都到了课堂精练的上限');
+    expect(JSON.stringify(run)).toContain('各账户额度都到了记忆整合的上限');
   });
 
   it('holds no account back when the window resets before quotaResetBefore', async () => {
@@ -551,7 +551,7 @@ function notes(count: number, size: number, prefix = 'n'): Record<string, string
   return Object.fromEntries(Array.from({ length: count }, (_, i) => [`notes/${prefix}${i}.md`, `${prefix}${i} `.padEnd(size, '知')]));
 }
 
-describe('课堂精练 续跑', { timeout: TIMEOUT }, () => {
+describe('记忆整合 续跑', { timeout: TIMEOUT }, () => {
   it('keeps running until the external library is read through, one card per run', async () => {
     const big = await bareRemote('big', notes(6, 2_000));
     const h = await harness({ answer: () => NOTHING, tuning: { maxInputChars: 10_000, externalLibraries: [{ name: 'big', url: big }] } });

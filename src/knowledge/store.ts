@@ -92,7 +92,7 @@ export class KnowledgeStore {
   }
 
   /**
-   * Topic notes (`notes/<scope>/<topic>.md`, written by 课堂精练) of these
+   * Topic notes (`notes/<scope>/<topic>.md`, written by 记忆整合) of these
    * scopes, name `<scope>/<topic>`. Only real files inside the directory.
    */
   async listNotes(scopeIds: readonly string[]): Promise<NoteFile[]> {
@@ -135,7 +135,7 @@ export class KnowledgeStore {
   }
 
   /**
-   * How useful a note (`<scope>/<topic>`) has been — 课堂精练's recall
+   * How useful a note (`<scope>/<topic>`) has been — 记忆整合's recall
    * count. Notes with a higher rank come first in their part of the index.
    * `ranker` is asked once per {@link rankNotes} for the rank as of now.
    */
@@ -144,7 +144,7 @@ export class KnowledgeStore {
   }
 
   /**
-   * When 课堂精练 first saw a note (`<scope>/<topic>`), if it has. A note
+   * When 记忆整合 first saw a note (`<scope>/<topic>`), if it has. A note
    * rewritten whole gets a new file, so its birth time alone would make it new again.
    */
   setNoteFirstSeen(lookup: (() => (name: string) => number | undefined) | undefined): void {
@@ -179,7 +179,7 @@ export class KnowledgeStore {
     }
   }
 
-  /** When a note was first written: the earlier of its file's birth time and when 课堂精练 first saw it. */
+  /** When a note was first written: the earlier of its file's birth time and when 记忆整合 first saw it. */
   noteCreatedAt(): (note: NoteFile) => number | undefined {
     let seen: ((name: string) => number | undefined) | undefined;
     try {

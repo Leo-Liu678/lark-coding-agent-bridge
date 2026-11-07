@@ -9,7 +9,7 @@ import { isPlausibleGitUrl } from '../knowledge/sync';
 import { maskSecrets } from './secrets';
 
 /**
- * 课前学习: before a run reads its own conversations, it studies what changed
+ * 外部学习: before a run reads its own conversations, it studies what changed
  * in the external repositories the owner pointed it at — other bots' knowledge
  * and skill libraries. They are cloned read-only into the run's scratch space
  * and never written to; only Markdown and HTML (as plain text — ops teams

@@ -56,7 +56,7 @@ describe('diaryEntry', () => {
       }),
     );
     expect(entry).toMatch(/^## 2026-10-28 04:00 · 批次 `20261028-040000-abcd`（自动）/);
-    expect(entry).toContain('读了 3 个会话（2 个范围、17 轮）；课前学习 cc 4 个文件（还剩 2 个）；1 个会话延后。');
+    expect(entry).toContain('读了 3 个会话（2 个范围、17 轮）；外部学习 cc 4 个文件（还剩 2 个）；1 个会话延后。');
     expect(entry).not.toContain('quiet');
     expect(entry).toContain('召回统计：新统计到 12 次读取');
     expect(entry).toContain('oc_1/build（6）');

@@ -63,7 +63,7 @@ async function createHarness(opts: { autoOn?: boolean } = {}) {
         settings: DREAM_DEFAULTS.auto,
         ledger: {
           consecutiveFailures: 0,
-          lastCheck: { at: 3, block: 'backlog', reason: '待审积压：还有 1 个课堂精练 Draft PR 没合并或关闭（上限 1），暂停自动整理' },
+          lastCheck: { at: 3, block: 'backlog', reason: '待审积压：还有 1 个记忆整合 Draft PR 没合并或关闭（上限 1），暂停自动整理' },
         },
       },
     })),
@@ -148,7 +148,7 @@ describe('/practice', () => {
     const h = await createHarness();
     await h.run('/practice');
     const out = texts(h.channel);
-    expect(out).toContain('课堂精练');
+    expect(out).toContain('记忆整合');
     expect(out).toContain('git@github.com:acme/k.git');
     expect(out).toContain('没有配置 skill 库');
     expect(out).toContain('pull/7');

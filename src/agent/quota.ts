@@ -34,7 +34,7 @@ export interface QuotaReadOptions {
   /**
    * With several accounts, which window "most room" is judged by: the fullest
    * one (default) or the weekly one — what a caller that only minds the week
-   * (课堂精练's `quotaWindow: week`) needs, or it is shown the wrong account.
+   * (记忆整合's `quotaWindow: week`) needs, or it is shown the wrong account.
    */
   window?: 'any' | 'week';
 }

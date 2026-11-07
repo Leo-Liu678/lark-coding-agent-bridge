@@ -336,7 +336,7 @@ describe('DreamService', { timeout: TIMEOUT }, () => {
     const bodies = (await gh.calls()).map((c) => c.body).filter(Boolean).join('\n');
     expect(bodies).toContain('**改写** 全局记忆 `aaa111`（处理标记 `f00001`）');
     expect(bodies).toContain('没采纳的 1 个操作');
-    expect(run.diary).toContain('记忆整合：改写 1 条、合并 0 组、删除 0 条、关闭标记 1 条，待审 Draft PR');
+    expect(run.diary).toContain('记忆修订：改写 1 条、合并 0 组、删除 0 条、关闭标记 1 条，待审 Draft PR');
     expect(h.prompts.some((prompt) => prompt.includes('<flags>'))).toBe(true);
 
     // The PR is still open: the next run proposes nothing new.
@@ -346,7 +346,7 @@ describe('DreamService', { timeout: TIMEOUT }, () => {
     if ('error' in again) throw new Error(again.error);
     await h.service.idle();
     expect(h.submits).toHaveLength(turns + 1);
-    expect(h.service.runs()[0]!.diary).toContain('记忆整合跳过（上一份记忆整合 PR 还没审完');
+    expect(h.service.runs()[0]!.diary).toContain('记忆修订跳过（上一份记忆修订 PR 还没审完');
   });
 
   it('with publish: push, leaves raw notes as they are: the global digest folds them, only once its manifest exists', async () => {
@@ -717,7 +717,7 @@ describe('DreamService', { timeout: TIMEOUT }, () => {
     expect(await showFile(h.knowledgeRemote, branch, 'chats/oc_team.md')).not.toContain('一条事实');
     expect(await showFile(h.knowledgeRemote, 'main', 'chats/oc_team.md')).toContain('一条事实');
     const message = await git(h.knowledgeRemote, ['log', '-1', '--format=%B', branch]);
-    expect(message.stdout).toContain(`撤销课堂精练 ${run.id}`);
+    expect(message.stdout).toContain(`撤销记忆整合 ${run.id}`);
     expect(message.stdout).not.toMatch(/Co-Authored-By|Generated with/i);
     expect(await h.service.revert(run.id)).toMatchObject({ results: [{ note: expect.stringContaining('已经开过') }] });
     expect(await h.service.revert('nope')).toMatchObject({ error: expect.stringContaining('没有批次') });

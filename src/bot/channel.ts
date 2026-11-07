@@ -1072,7 +1072,7 @@ export async function startChannel(deps: StartChannelDeps): Promise<BridgeChanne
   controls.autoResumer = autoResumer;
   kickoffs?.start();
 
-  // 课堂精练: runs when an admin asks (`/practice run`, Web console) or, with
+  // 记忆整合: runs when an admin asks (`/practice run`, Web console) or, with
   // 自动整理 on, when its gates pass — never while the profile has anything
   // else to do. Notes the conversations the catalog records while the switch
   // is on, so a later run can still read the ones a newer conversation replaced.
@@ -1096,7 +1096,7 @@ export async function startChannel(deps: StartChannelDeps): Promise<BridgeChanne
         activeRuns.scopes().some(notDream) ||
         activeRuns.lingeringScopes().some(notDream) ||
         pending.totalDepth() > 0,
-      // 课堂精练 gives way only when a user task would wait for a slot, not whenever anything runs.
+      // 记忆整合 gives way only when a user task would wait for a slot, not whenever anything runs.
       isCapacityTight: () => {
         const slots = pool.snapshot();
         return slots.waiting > 0 || slots.active >= slots.cap;
@@ -1547,7 +1547,7 @@ async function intakeMessage(deps: IntakeDeps): Promise<void> {
     return;
   }
 
-  // User tasks come first: an automatic 课堂精练 still drafting stops here.
+  // User tasks come first: an automatic 记忆整合 still drafting stops here.
   deps.controls.dream?.preempt('有新的用户消息');
 
   // 前缀开话题: `/xhigh 帮我…` outside a topic runs in a topic of its own,

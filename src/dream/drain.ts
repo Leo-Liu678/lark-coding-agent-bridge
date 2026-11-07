@@ -13,7 +13,7 @@ import type { DreamRun } from './state';
  * its limits, or giving way to a user task (see DreamService#preempt).
  */
 /** Deferral reason when every account is at 自动整理's quota ceiling; counts as leftover for 续跑. */
-export const ACCOUNTS_FULL_REASON = '各账户额度都到了课堂精练的上限';
+export const ACCOUNTS_FULL_REASON = '各账户额度都到了记忆整合的上限';
 
 const LIMIT_REASONS: ReadonlySet<string> = new Set([
   '超出本轮输入预算',

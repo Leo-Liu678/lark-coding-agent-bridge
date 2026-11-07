@@ -25,7 +25,7 @@ const PHASE_LABEL: Record<DreamTarget['phase'], string> = {
 export function formatDreamStatus(view: DreamStatusView): string {
   const { settings } = view;
   const lines = [
-    `**📚 课堂精练**：${view.enabled ? '已开启' : '未开启（`/config` 里打开）'}`,
+    `**📚 记忆整合**：${view.enabled ? '已开启' : '未开启（`/config` 里打开）'}`,
     '',
     `- 整理用 agent：${view.agent}（只读运行，独立会话）`,
     `- 知识库：${view.targets.knowledge.url ? `\`${view.targets.knowledge.url}\`` : `⚠️ ${view.targets.knowledge.problem}`}`,
@@ -57,13 +57,13 @@ export function formatDreamStatus(view: DreamStatusView): string {
 }
 
 export function formatDreamRun(run: DreamRun): string {
-  const lines = [`**📚 课堂精练 ${STATUS_LABEL[run.status]}** · 批次 \`${run.id}\`${run.trigger === 'auto' ? '（自动）' : ''}`];
+  const lines = [`**📚 记忆整合 ${STATUS_LABEL[run.status]}** · 批次 \`${run.id}\`${run.trigger === 'auto' ? '（自动）' : ''}`];
   if (run.note) lines.push('', run.note);
   for (const item of run.external ?? []) {
     lines.push(
       item.error
-        ? `- 课前学习 ${item.library}：${item.error}`
-        : `- 课前学习 ${item.library}：读了 ${item.files} 个文件（到 \`${item.head.slice(0, 7)}\`）${item.pending > 0 ? `，还有 ${item.pending} 个留到下一轮` : ''}`,
+        ? `- 外部学习 ${item.library}：${item.error}`
+        : `- 外部学习 ${item.library}：读了 ${item.files} 个文件（到 \`${item.head.slice(0, 7)}\`）${item.pending > 0 ? `，还有 ${item.pending} 个留到下一轮` : ''}`,
     );
   }
   for (const target of run.targets) lines.push(`- ${targetLine(target)}`);
@@ -78,8 +78,8 @@ export function formatDreamRun(run: DreamRun): string {
 export function formatDreamPrs(
   entries: ReadonlyArray<{ run: DreamRun; target: DreamTarget; state?: string }>,
 ): string {
-  if (entries.length === 0) return '还没有课堂精练开出的 PR。';
-  const lines = ['**📚 课堂精练的 PR**', ''];
+  if (entries.length === 0) return '还没有记忆整合开出的 PR。';
+  const lines = ['**📚 记忆整合的 PR**', ''];
   for (const { run, target, state } of entries) {
     lines.push(`- \`${run.id}\` ${target.label}：[#${target.prNumber ?? '?'}](${target.prUrl})${state ? ` · ${state}` : ''}`);
   }
@@ -118,11 +118,11 @@ function autoLines(view: DreamStatusView): string[] {
   return lines;
 }
 
-/** 课前学习: each external library and how far it has been read. */
+/** 外部学习: each external library and how far it has been read. */
 function externalLines(view: DreamStatusView): string[] {
   if (view.external.length === 0) return [];
   return [
-    '- 课前学习（每轮先学这些外部库的新内容）：',
+    '- 外部学习（每轮先学这些外部库的新内容）：',
     ...view.external.map((item) => {
       const cursor = item.cursor
         ? `学到 \`${item.cursor.commit.slice(0, 7)}\`（${formatTime(item.cursor.learnedAt)}）${item.cursor.pending ? `，还有 ${item.cursor.pending} 个文件待学` : ''}`

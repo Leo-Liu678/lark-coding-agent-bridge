@@ -6,7 +6,7 @@ import type { ExternalCursor } from './external';
 import type { DreamAutoCheck, DreamAutoLedger } from './schedule';
 
 /**
- * Local bookkeeping of 课堂精练 — never knowledge itself. What was proposed
+ * Local bookkeeping of 记忆整合 — never knowledge itself. What was proposed
  * lives in the target repositories' Draft PRs; this file only remembers which
  * conversations were already read, which runs happened and where their PRs
  * are, so a run is incremental and a half-finished publish can be resumed.
@@ -94,9 +94,9 @@ export interface DreamRun {
    * pushed / opened, never redone.
    */
   checkpointAt?: number;
-  /** 课前学习 of this run: the commit each external library was read up to (cursor after the checkpoint). */
+  /** 外部学习 of this run: the commit each external library was read up to (cursor after the checkpoint). */
   external?: Array<{ library: string; head: string; files: number; pending: number; error?: string }>;
-  /** 课前学习 read files but its turn failed: the libraries' cursors did not move. */
+  /** 外部学习 read files but its turn failed: the libraries' cursors did not move. */
   learnFailed?: boolean;
   /** 续跑: the how-manieth run in a row of one start (absent: the first). */
   round?: number;
@@ -116,7 +116,7 @@ interface DreamStateData {
   published: string[];
   /** 自动整理 bookkeeping. */
   auto?: DreamAutoLedger;
-  /** 课前学习: how far each external library has been read. */
+  /** 外部学习: how far each external library has been read. */
   external?: Record<string, ExternalCursor>;
 }
 

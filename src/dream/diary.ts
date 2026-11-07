@@ -116,7 +116,7 @@ export function diaryEntry(input: DiaryInput): string {
       item.error
         ? `外部库 ${item.library} 没读成（${item.error}）`
         : item.files > 0
-          ? `课前学习 ${item.library} ${item.files} 个文件${item.pending > 0 ? `（还剩 ${item.pending} 个）` : ''}`
+          ? `外部学习 ${item.library} ${item.files} 个文件${item.pending > 0 ? `（还剩 ${item.pending} 个）` : ''}`
           : undefined,
     ),
     light.deferred > 0 ? `${light.deferred} 个会话延后` : undefined,
@@ -155,11 +155,11 @@ export function diaryEntry(input: DiaryInput): string {
   }
   const c = deep.consolidation;
   if (c) {
-    if (c.error) deepParts.push(`记忆整合没做成（${c.error}）`);
-    else if (c.skipped) deepParts.push(`记忆整合跳过（${c.skipped}）`);
+    if (c.error) deepParts.push(`记忆修订没做成（${c.error}）`);
+    else if (c.skipped) deepParts.push(`记忆修订跳过（${c.skipped}）`);
     else {
       deepParts.push(
-        `记忆整合：改写 ${c.updated} 条、合并 ${c.merged} 组、删除 ${c.deleted} 条、关闭标记 ${c.dismissed} 条${c.prUrl ? `，待审 Draft PR ${c.prUrl}` : ''}`,
+        `记忆修订：改写 ${c.updated} 条、合并 ${c.merged} 组、删除 ${c.deleted} 条、关闭标记 ${c.dismissed} 条${c.prUrl ? `，待审 Draft PR ${c.prUrl}` : ''}`,
       );
     }
   }
@@ -188,7 +188,7 @@ function clip(text: string, max: number): string {
 
 export const DIARY_FILE = 'DREAMS.md';
 export const DIARY_HEADER =
-  '# 梦境日记\n\n课堂精练每一轮的小结，最新的在最前面：浅睡读了什么、REM 归纳出什么主题、深睡写进了什么、整合和归档了什么、多少提案没采纳。只给人看，不会被当作记忆加载。由 lark-channel-bridge 自动写入。\n';
+  '# 梦境日记\n\n记忆整合每一轮的小结，最新的在最前面：浅睡读了什么、REM 归纳出什么主题、深睡写进了什么、整合和归档了什么、多少提案没采纳。只给人看，不会被当作记忆加载。由 lark-channel-bridge 自动写入。\n';
 
 /** Put an entry at the top of the checkout's `DREAMS.md`. */
 export function writeDiary(dir: string, entry: string): Promise<{ file: string } | { error: string }> {

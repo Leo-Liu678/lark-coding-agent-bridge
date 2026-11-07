@@ -246,7 +246,7 @@ export function changedNotes(
 
 // ---------------------------------------------------------------- classify
 
-const CLASSIFY_INSTRUCTIONS = `你在做「课堂精练」的深睡·全局整合第一步：把各会话积累的原始主题笔记分到全局主题里。catalog 是已有的全局主题（topic + 标题 + 摘要），notes 是这次要分的原始笔记（只给了前几条作预览）。
+const CLASSIFY_INSTRUCTIONS = `你在做「记忆整合」的深睡·全局整合第一步：把各会话积累的原始主题笔记分到全局主题里。catalog 是已有的全局主题（topic + 标题 + 摘要），notes 是这次要分的原始笔记（只给了前几条作预览）。
 
 只输出一个 JSON 对象，不要输出任何其他文字，不要调用任何工具，不要读写文件。
 
@@ -314,7 +314,7 @@ export function parseClassify(
 
 // ---------------------------------------------------------------- merge
 
-const MERGE_INSTRUCTIONS = `你在做「课堂精练」的深睡·全局整合：把同一主题下的知识压缩合并成一篇全局主题笔记。topics 里每个主题有 current（已有的全局条目，id + section + text）和 incoming（这次新来的原始条目，id + 来自哪篇笔记 + text）。请对每个主题输出合并后完整的条目列表。
+const MERGE_INSTRUCTIONS = `你在做「记忆整合」的深睡·全局整合：把同一主题下的知识压缩合并成一篇全局主题笔记。topics 里每个主题有 current（已有的全局条目，id + section + text）和 incoming（这次新来的原始条目，id + 来自哪篇笔记 + text）。请对每个主题输出合并后完整的条目列表。
 
 只输出一个 JSON 对象，不要输出任何其他文字，不要调用任何工具，不要读写文件。
 
@@ -496,7 +496,7 @@ export function renderTopic(topic: MergedTopic, owner: boolean, updated: string)
     sections.set(entry.section, list);
   }
   const header = (part: number) =>
-    `# ${topic.title}${part > 1 ? `（${part}）` : ''}\n\n课堂精练全局整合层，范围 \`${scope}\`，更新于 ${updated}。每条末尾 ‹…› 是来源原始条目 id。\n`;
+    `# ${topic.title}${part > 1 ? `（${part}）` : ''}\n\n记忆整合全局整合层，范围 \`${scope}\`，更新于 ${updated}。每条末尾 ‹…› 是来源原始条目 id。\n`;
   const entryLine = (entry: LayerEntry) => `- [${entry.id}] ${entry.text} ‹${entry.sources.join(',')}›`;
   const parts: string[][] = [[]];
   let size = Buffer.byteLength(header(1));

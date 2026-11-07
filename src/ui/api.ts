@@ -73,7 +73,7 @@ export interface ConfigView {
   showToolCalls: boolean;
   smartSession: boolean;
   autoWorktreeCleanup: boolean;
-  /** 课堂精练 switch (manual runs; see the dream panel). */
+  /** 记忆整合 switch (manual runs; see the dream panel). */
   dream: boolean;
   /** 自动整理 on top of {@link dream}. */
   dreamAuto: boolean;

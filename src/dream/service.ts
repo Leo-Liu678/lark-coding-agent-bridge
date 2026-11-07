@@ -119,7 +119,7 @@ import type { DreamMaterial } from './schedule';
 import { DreamStateStore, sessionKey, type DreamRun, type DreamSessionRecord, type DreamTarget } from './state';
 
 /**
- * 课堂精练: the bridge reads the conversations it ran since last time, has the
+ * 记忆整合: the bridge reads the conversations it ran since last time, has the
  * agent draft memory / note / skill proposals per scope in a read-only run,
  * validates them, and opens Draft PRs against the knowledge repo (its
  * `origin`) and the profile's own skill library (from `skills.libraries`).
@@ -253,7 +253,7 @@ export interface DreamStatusView {
     settings: DreamAutoSettings;
     ledger: DreamAutoLedger;
   };
-  /** 课前学习: each external library and how far it has been read. */
+  /** 外部学习: each external library and how far it has been read. */
   external: Array<{ name: string; label: string; cursor?: { commit: string; learnedAt: number; pending: number } }>;
 }
 
@@ -273,7 +273,7 @@ interface DraftTally {
   skills: number;
 }
 
-/** What 课前学习 brought into a run. */
+/** What 外部学习 brought into a run. */
 interface LearningOutcome {
   additions: MemoryAddition[];
   skills: SkillProposal[];
@@ -309,7 +309,7 @@ interface CurrentRun {
 }
 
 const KEEP_CHECKOUT_RUNS = 5;
-/** 课前学习's scope: notes land in `notes/external/`. */
+/** 外部学习's scope: notes land in `notes/external/`. */
 const LEARNING_SCOPE = 'external';
 const MAX_LEARNING_MEMORY = 30;
 const MAX_LEARNING_SKILLS = 10;
@@ -324,9 +324,9 @@ const DIARY_TOP_DAYS = 7;
 const AUTO_ACTOR: DreamActor = { id: 'dream-auto', name: '自动整理' };
 /** 深睡整理's direct target in the knowledge repository: diary, notes consolidation, archive. */
 const DEEP_REPO = 'knowledge:deep';
-/** 深睡·记忆整合: always a Draft PR of its own. */
+/** 深睡·记忆修订: always a Draft PR of its own. */
 const MEMORY_REPO = 'knowledge:memory';
-/** Between two 记忆整合 PRs, so a rejected one is not proposed again the next night. */
+/** Between two 记忆修订 PRs, so a rejected one is not proposed again the next night. */
 const MEMORY_COOLDOWN_MS = 3 * 86_400_000;
 /** Deferral reason of the conversations an automatic run left to a user task. */
 export const YIELD_REASON = '让位给用户任务';
@@ -454,7 +454,7 @@ export class DreamService {
    * automatic runs pass none.
    */
   async start(actor: DreamActor, onFinish?: (run: DreamRun) => void, options: DreamStartOptions = {}): Promise<DreamStartResult> {
-    if (!this.enabled()) return { error: '课堂精练没有打开（/config 里打开「课堂精练」）。', code: 'off' };
+    if (!this.enabled()) return { error: '记忆整合没有打开（/config 里打开「记忆整合」）。', code: 'off' };
     const trigger = options.trigger ?? 'manual';
     if (trigger === 'auto' && !this.autoEnabled()) return { error: '自动整理没有打开。', code: 'off' };
     const already = this.busy();
@@ -677,7 +677,7 @@ export class DreamService {
     const now = this.now();
     const settings = getDreamAuto(this.deps.appConfig());
     if (!settings) {
-      return this.noteCheck({ at: now, block: 'off', reason: this.enabled() ? '自动整理没有打开' : '课堂精练没有打开' });
+      return this.noteCheck({ at: now, block: 'off', reason: this.enabled() ? '自动整理没有打开' : '记忆整合没有打开' });
     }
     const auto = settings.auto;
     if (this.current || this.starting) return this.noteCheck({ at: now, block: 'running', reason: '已经有一轮整理在进行' });
@@ -701,7 +701,7 @@ export class DreamService {
       return this.noteCheck({ at: now, block: 'restricted', reason: '当前 agent 配置无法保证只读执行，不开放自动整理' });
     }
     this.noteCatalog();
-    // 每日模式 runs whatever piled up — 课前学习 and own skills count as much as conversations.
+    // 每日模式 runs whatever piled up — 外部学习 and own skills count as much as conversations.
     let material: DreamMaterial | undefined;
     if (!auto.daily && !resume) {
       const measured = await measureNewInput({ records: this.state.sessions(), settings, read: this.reader() });
@@ -716,7 +716,7 @@ export class DreamService {
       return this.noteCheck({
         at: now,
         block: 'backlog',
-        reason: `待审积压：还有 ${openPrs} 个课堂精练 Draft PR 没合并或关闭（上限 ${auto.maxOpenPrs}），暂停自动整理`,
+        reason: `待审积压：还有 ${openPrs} 个记忆整合 Draft PR 没合并或关闭（上限 ${auto.maxOpenPrs}），暂停自动整理`,
         ...(material ? { material } : {}),
         openPrs,
       });
@@ -730,7 +730,7 @@ export class DreamService {
       if (auto.daily) {
         // The weekly window will not empty within the hours left: today is skipped, once, and said so.
         this.state.updateAuto({ lastWindowKey: dreamWindowAt(now, auto.window, auto.timezone).key });
-        this.tell(settings.notifyChat, `**📚 今天的课堂精练跳过**\n\n${reason}，明天 ${auto.daily.text} 再看。`);
+        this.tell(settings.notifyChat, `**📚 今天的记忆整合跳过**\n\n${reason}，明天 ${auto.daily.text} 再看。`);
       }
       return this.noteCheck({ at: now, block: 'quota', reason, ...context });
     }
@@ -918,7 +918,7 @@ export class DreamService {
 
   /** Still allowed to take effect: the switch — and for an automatic run, 自动整理 — is on. */
   private switchedOff(run: DreamRun): string | undefined {
-    if (!this.enabled()) return '课堂精练已关闭';
+    if (!this.enabled()) return '记忆整合已关闭';
     if (run.trigger === 'auto' && !this.autoEnabled()) return '自动整理已关闭';
     return undefined;
   }
@@ -941,7 +941,7 @@ export class DreamService {
     const signal = current.abort.signal;
     const stopped = (rest: string) => this.finish(run.id, 'cancelled', `${current.stopped ?? '已取消'}，${rest}`);
     const configured = getDream(this.deps.appConfig());
-    if (!configured) return this.finish(run.id, 'cancelled', '课堂精练已关闭');
+    if (!configured) return this.finish(run.id, 'cancelled', '记忆整合已关闭');
     const settings = scaleBudget(configured, budget);
     this.state.updateRun(run.id, { status: 'running' });
     await mkdir(this.deps.workDir, { recursive: true, mode: 0o700 });
@@ -989,7 +989,7 @@ export class DreamService {
     ]);
     const deadline = this.now() + settings.maxRunMinutes * 60_000;
 
-    // 课前学习 first: external libraries' news and this profile's own skills.
+    // 外部学习 first: external libraries' news and this profile's own skills.
     const learning = await this.learn(run.id, settings, { actor, deadline, signal, profileMemory, skills });
     if (signal.aborted) return stopped('游标未移动');
     if (learning.report.length > 0) {
@@ -997,7 +997,7 @@ export class DreamService {
     }
     const learned = learning.additions.length + learning.skills.length > 0;
     if (current.yielding && !learned) {
-      // Gave way during 课前学习 with nothing to keep: no cursor moves, the next run reads it all again.
+      // Gave way during 外部学习 with nothing to keep: no cursor moves, the next run reads it all again.
       for (const scope of selection.scopes) {
         for (const session of scope.sessions) deferred.push({ key: session.record.key, reason: YIELD_REASON });
       }
@@ -1013,7 +1013,7 @@ export class DreamService {
         resumed,
         learning.error,
         deferred.length > 0 ? `${deferred.length} 个会话延后` : '没有新的已结束会话可整理',
-        settings.external.length > 0 && !learning.error ? '课前学习没有值得吸收的新内容' : undefined,
+        settings.external.length > 0 && !learning.error ? '外部学习没有值得吸收的新内容' : undefined,
       ]
         .filter(Boolean)
         .join('；');
@@ -1270,7 +1270,7 @@ export class DreamService {
   }
 
   /**
-   * 课前学习: fetch every external library, gather what changed since its
+   * 外部学习: fetch every external library, gather what changed since its
    * cursor, read this profile's own skills, and — when there is anything to
    * learn or an own skill lacks its `argument-hint` — one read-only turn that
    * proposes notes and skills, validated like any other proposal. The
@@ -1358,7 +1358,7 @@ export class DreamService {
       skillProjects: settings.skillProjects,
     });
     const answer = await this.runAgent(`dream:${batch}:learn`, built.prompt, ctx.actor, ctx.deadline - this.now(), ctx.signal);
-    const failed = (error: string): LearningOutcome => ({ ...outcome, cursors: {}, error: `课前学习没做成（${error}），外部库游标未移动` });
+    const failed = (error: string): LearningOutcome => ({ ...outcome, cursors: {}, error: `外部学习没做成（${error}），外部库游标未移动` });
     if ('error' in answer) return failed(answer.error);
     const parsed = parseDreamOutput(answer.text);
     if ('error' in parsed) return failed(`模型输出不合格：${parsed.error}`);
@@ -1728,7 +1728,7 @@ export class DreamService {
   }
 
   /**
-   * 深睡整理, once the night's input is checkpointed and published: 记忆整合
+   * 深睡整理, once the night's input is checkpointed and published: 记忆修订
    * as a Draft PR of its own; then, straight onto the default branch, 笔记整合,
    * 归档 and the diary entry at the top of DREAMS.md. The diary is also kept with
    * the run. Nothing here moves a cursor; a failure is reported and looked at
@@ -1753,8 +1753,8 @@ export class DreamService {
       const consolidation = await this.consolidateMemory(id, url, ctx);
       if (consolidation) {
         diary.deep.consolidation = consolidation;
-        if (consolidation.error) notes.push(`记忆整合没做成：${consolidation.error}`);
-        else if (consolidation.prUrl) notes.push(`记忆整合 Draft PR：${consolidation.prUrl}`);
+        if (consolidation.error) notes.push(`记忆修订没做成：${consolidation.error}`);
+        else if (consolidation.prUrl) notes.push(`记忆修订 Draft PR：${consolidation.prUrl}`);
       }
     }
     // With publish: pr the notes being merged are the ones tonight's unmerged PR
@@ -1871,7 +1871,7 @@ export class DreamService {
   }
 
   /**
-   * 深睡·记忆整合: one turn over the pending flags (and a global memory near
+   * 深睡·记忆修订: one turn over the pending flags (and a global memory near
    * its budget), checked operation by operation, as a Draft PR of its own.
    * One at a time: while the last one waits for review, or within a few days
    * of it, nothing new is proposed. Undefined when there was nothing to do.
@@ -1887,15 +1887,15 @@ export class DreamService {
       .filter((run) => run.id !== id)
       .flatMap((run) => run.targets.filter((target) => target.repo === MEMORY_REPO).map((target) => ({ run, target })));
     for (const { target } of earlier) {
-      if (target.phase === 'committed' || target.phase === 'pushed') return { ...none, skipped: '上一份记忆整合还没开成 PR' };
+      if (target.phase === 'committed' || target.phase === 'pushed') return { ...none, skipped: '上一份记忆修订还没开成 PR' };
       if (target.phase === 'pr-created' && target.prUrl) {
         const state = await pullRequestState(this.deps.workDir, target.prUrl);
-        if (state !== '已合并' && state !== '已关闭') return { ...none, skipped: `上一份记忆整合 PR 还没审完（${target.prUrl}）` };
+        if (state !== '已合并' && state !== '已关闭') return { ...none, skipped: `上一份记忆修订 PR 还没审完（${target.prUrl}）` };
       }
     }
     if (earlier.some(({ run }) => this.now() - run.startedAt < MEMORY_COOLDOWN_MS)) return undefined;
 
-    const label = '知识库（记忆整合）';
+    const label = '知识库（记忆修订）';
     let target: DreamTarget = { repo: MEMORY_REPO, label, branch: `${dreamBranch(id)}-memory`, phase: 'failed', items: 0 };
     const dir = join(this.deps.workDir, 'batches', id, 'memory');
     const prepared = await prepareCheckout({ repo: MEMORY_REPO, label, url }, dir, target.branch);
@@ -1920,7 +1920,7 @@ export class DreamService {
       title: memoryPrTitle(id, plan),
       body: memoryPrBody({ batchId: id, profile: this.deps.profile, plan, files, flags }),
     };
-    const committed = await this.commitTarget(id, target, changed, `记忆整合：改写 ${summary.updated}、合并 ${summary.merged}、删除 ${summary.deleted}、关闭标记 ${summary.dismissed}`);
+    const committed = await this.commitTarget(id, target, changed, `记忆修订：改写 ${summary.updated}、合并 ${summary.merged}、删除 ${summary.deleted}、关闭标记 ${summary.dismissed}`);
     if (committed.phase !== 'committed') return { ...summary, error: committed.error ?? '提交失败' };
     const opened = await this.pushAndOpen(id, committed);
     if (!opened.prUrl) return { ...summary, error: opened.error ?? '没开成 PR，下一轮重试' };
@@ -1962,7 +1962,7 @@ export class DreamService {
       const pr = await openDraftPullRequest(dir, {
         branch: current.branch,
         base: current.base ?? 'main',
-        title: current.title ?? `课堂精练 ${id}`,
+        title: current.title ?? `记忆整合 ${id}`,
         body: current.body ?? '',
       });
       if ('error' in pr) return this.saveTarget(id, { ...current, error: pr.error });
@@ -2048,7 +2048,7 @@ export class DreamService {
       branch,
     );
     if ('error' in prepared) return { note: prepared.error };
-    const title = `撤销课堂精练 ${id}（${label}）`;
+    const title = `撤销记忆整合 ${id}（${label}）`;
     const reverted = await revertDraft(dir, info.mergeCommit, title, this.hooksDir());
     if ('error' in reverted) return { note: reverted.error };
     const access = await checkPullRequestAccess(dir);
@@ -2060,9 +2060,9 @@ export class DreamService {
       base: prepared.base,
       title,
       body: [
-        `撤销课堂精练批次 \`${id}\` 合并进 ${label} 的内容（原 PR：${target.prUrl}）。`,
+        `撤销记忆整合批次 \`${id}\` 合并进 ${label} 的内容（原 PR：${target.prUrl}）。`,
         '',
-        `由 profile \`${this.deps.profile}\` 的 \`/practice revert\` 生成。和其他课堂精练 PR 一样，合并这个 PR 才生效。`,
+        `由 profile \`${this.deps.profile}\` 的 \`/practice revert\` 生成。和其他记忆整合 PR 一样，合并这个 PR 才生效。`,
       ].join('\n'),
     });
     if ('error' in pr) return { note: pr.error };
@@ -2163,7 +2163,7 @@ function scaleBudget(settings: DreamSettings, budget: number): DreamSettings {
 }
 
 /**
- * The status of a profile's 课堂精练 from its state file and config. The
+ * The status of a profile's 记忆整合 from its state file and config. The
  * service passes its own running batch; a viewer in another process (the web
  * console looking at a daemon-run profile) takes the stored one.
  */

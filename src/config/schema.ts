@@ -153,7 +153,7 @@ export interface AppPreferences {
    * Model Claude Code's subagents default to (`CLAUDE_CODE_SUBAGENT_MODEL`),
    * e.g. `sonnet`: a subagent whose definition or call names a model keeps
    * that one, so the agent can still ask for `opus` where it matters. Chats,
-   * meetings and scheduled jobs only; 课堂精练 keeps the session's model.
+   * meetings and scheduled jobs only; 记忆整合 keeps the session's model.
    * Config-file only. Default: unset (subagents run on the session's model).
    */
   subagentModel?: string;
@@ -258,7 +258,7 @@ export interface AppPreferences {
   /** Thresholds behind {@link smartSession}; config-file only. See {@link getSmartSession}. */
   smartSessionTuning?: SmartSessionTuning;
   /**
-   * 课堂精练. When on, an admin's `/practice run` turns ended conversations into
+   * 记忆整合. When on, an admin's `/practice run` turns ended conversations into
    * reviewable Draft PRs against the knowledge repo and the profile's own skill
    * library. Never merges. Independent of {@link smartSession}. Default off.
    */
@@ -363,8 +363,8 @@ function ids(raw: unknown, shape: RegExp): string[] {
 
 export interface DreamTuning {
   /**
-   * Effort for 课堂精练's turns, when it should differ from the chats'
-   * `preferences.effort` (say chats on `medium`, 课堂精练 kept on `high`).
+   * Effort for 记忆整合's turns, when it should differ from the chats'
+   * `preferences.effort` (say chats on `medium`, 记忆整合 kept on `high`).
    * Default: unset, same as the chats.
    */
   effort?: EffortLevel;
@@ -437,7 +437,7 @@ export interface DreamTuning {
    */
   skillUpdates?: 'pr' | 'push';
   /**
-   * 课前学习: repositories (other bots' knowledge / skill libraries) studied at
+   * 外部学习: repositories (other bots' knowledge / skill libraries) studied at
    * the start of every run, only what changed since the last run. Read-only:
    * never written to. What is worth keeping lands in this profile's own
    * knowledge repo (notes) and skill library.
@@ -461,7 +461,7 @@ export interface DreamTuning {
   skillProjects?: Record<string, string>;
   /**
    * Skill directories the agent CLI loads by itself (`~/.claude/skills`…):
-   * listed by name to 课前学习 so it does not create a library copy of a
+   * listed by name to 外部学习 so it does not create a library copy of a
    * skill the profile already has.
    */
   localSkillDirs?: string[];
@@ -780,7 +780,7 @@ export function getSmartSession(cfg: AppConfig): SmartSessionSettings | undefine
 }
 
 /**
- * Resolved 课堂精练 limits, or `undefined` when the switch is off.
+ * Resolved 记忆整合 limits, or `undefined` when the switch is off.
  * Out-of-range values fall back to the defaults.
  */
 export function getDream(cfg: AppConfig): DreamSettings | undefined {

@@ -1,5 +1,5 @@
 /**
- * 深睡·记忆整合: the merge / conflict / stale flags 课堂精练 left in each
+ * 深睡·记忆修订: the merge / conflict / stale flags 记忆整合 left in each
  * scope's `dream-review` note, and a global memory close to its budget, are
  * worked off in one read-only turn. The model only names operations on ids
  * it was shown — rewrite an entry, merge entries, delete one, or close a flag
@@ -109,7 +109,7 @@ export function memoryWorthConsolidating(flags: readonly PendingFlag[], files: r
   return flags.length > 0 || (profile ? memoryChars(profile.entries) >= MEMORY_BUDGET_CHARS * MEMORY_TIDY_RATIO : false);
 }
 
-const INSTRUCTIONS = `你在做「课堂精练」的深睡·记忆整合：flags 是之前整理时挂起的待处理标记（建议合并、冲突、疑似过时），memory 是这些标记涉及的全局记忆（profile）和会话记忆（各 scope）。请逐条处理标记，必要时顺手整理全局记忆里重复、啰嗦的条目。结果会做成 Draft PR，管理员审核合并后才生效。
+const INSTRUCTIONS = `你在做「记忆整合」的深睡·记忆修订：flags 是之前整理时挂起的待处理标记（建议合并、冲突、疑似过时），memory 是这些标记涉及的全局记忆（profile）和会话记忆（各 scope）。请逐条处理标记，必要时顺手整理全局记忆里重复、啰嗦的条目。结果会做成 Draft PR，管理员审核合并后才生效。
 
 只输出一个 JSON 对象，不要输出任何其他文字，不要调用任何工具，不要读写文件。
 
@@ -338,7 +338,7 @@ export function memoryPlanSummary(plan: MemoryPlan): { updated: number; merged: 
 export function memoryPrTitle(batchId: string, plan: MemoryPlan): string {
   const changes = plan.ops.filter((op) => op.op !== 'dismiss').length;
   const flags = new Set(plan.ops.flatMap((op) => op.flags)).size;
-  return `课堂精练 ${batchId}：记忆整合（改动 ${changes} 处，关闭标记 ${flags} 条）`;
+  return `记忆整合 ${batchId}：记忆修订（改动 ${changes} 处，关闭标记 ${flags} 条）`;
 }
 
 export function memoryPrBody(input: {
@@ -353,7 +353,7 @@ export function memoryPrBody(input: {
   const flagText = (ids: readonly string[]) =>
     ids.length === 0 ? '' : `（处理标记 ${ids.map((id) => `\`${id}\``).join('、')}）`;
   const lines = [
-    `课堂精练批次 \`${input.batchId}\` 的深睡·记忆整合，由 profile \`${input.profile}\` 生成。合并这个 PR 才生效；不同意的条目直接在 PR 里改或关掉 PR，下次整理会重新提出还挂着的标记。`,
+    `记忆整合批次 \`${input.batchId}\` 的深睡·记忆修订，由 profile \`${input.profile}\` 生成。合并这个 PR 才生效；不同意的条目直接在 PR 里改或关掉 PR，下次整理会重新提出还挂着的标记。`,
     '',
   ];
   for (const op of input.plan.ops) {

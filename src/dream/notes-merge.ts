@@ -93,7 +93,7 @@ export async function pickFamily(dir: string, scopes: readonly string[]): Promis
   return best;
 }
 
-const INSTRUCTIONS = `你在做「课堂精练」的深睡·笔记整合：notes 是同一个会话（family）和它各个话题下积累的主题笔记，每篇有若干条目（id + text）。请找出碎片化、重复、同一件事分散在几篇笔记里的情况，提出合并方案。
+const INSTRUCTIONS = `你在做「记忆整合」的深睡·笔记整合：notes 是同一个会话（family）和它各个话题下积累的主题笔记，每篇有若干条目（id + text）。请找出碎片化、重复、同一件事分散在几篇笔记里的情况，提出合并方案。
 
 只输出一个 JSON 对象，不要输出任何其他文字，不要调用任何工具，不要读写文件。
 
@@ -250,7 +250,7 @@ export async function applyNotesPlan(dir: string, plan: NotesPlan): Promise<stri
       taken.add(id);
       return `- [${id}] ${entry.text}`;
     });
-    const body = `# ${merge.into.topic}\n\n课堂精练归纳的项目事实，范围 \`${merge.into.scope}\`。\n${lines.join('\n')}\n`;
+    const body = `# ${merge.into.topic}\n\n记忆整合归纳的项目事实，范围 \`${merge.into.scope}\`。\n${lines.join('\n')}\n`;
     await mkdir(join(dir, 'notes', merge.into.scope), { recursive: true });
     await writeFile(join(dir, ...into.split('/')), body, 'utf8');
     changed.add(into);

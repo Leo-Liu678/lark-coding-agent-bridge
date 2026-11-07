@@ -255,7 +255,7 @@ describe('rankNotes', () => {
 });
 
 describe('noteCreatedAt', () => {
-  it('takes the earlier of the file birth time and when 课堂精练 first saw the note', async () => {
+  it('takes the earlier of the file birth time and when 记忆整合 first saw the note', async () => {
     await mkdir(join(store.dir, 'notes', 'oc_1'), { recursive: true });
     await writeFile(join(store.dir, 'notes', 'oc_1', 'a.md'), 'a');
     const [note] = await store.listNotes(['oc_1']);

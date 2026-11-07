@@ -61,7 +61,7 @@ export interface AccountFailoverDeps {
  *
  * The account a run ends up on becomes the main one (see the pool's rounds).
  *
- * A run with `accountLineCap` (课堂精练) sees every line lowered to the cap:
+ * A run with `accountLineCap` (记忆整合) sees every line lowered to the cap:
  * it starts on, and moves only to, an account below it; with none left it
  * stays where it is until its turn ends and lets its caller stop there. It
  * never changes which account is the main one.
@@ -73,7 +73,7 @@ export function runWithAccountFailover(opts: AgentRunOptions, deps: AccountFailo
   const cap = opts.accountLineCap;
   let account = deps.pool.pick(undefined, cap);
   if (!account) throw new Error('no Claude account to run on');
-  // A capped run (课堂精练) borrows an account; chats keep their main one.
+  // A capped run (记忆整合) borrows an account; chats keep their main one.
   const promote = (id: string): void => {
     if (!cap) deps.pool.promote(id);
   };
@@ -119,7 +119,7 @@ export function runWithAccountFailover(opts: AgentRunOptions, deps: AccountFailo
     }
     // The main account changed while the process was kept (`/accounts
     // switch`, or another run moved on and promoted its account): follow it.
-    // A capped run (课堂精练) borrows its account and does not follow.
+    // A capped run (记忆整合) borrows its account and does not follow.
     if (!cap) {
       const main = deps.pool.accounts()[0];
       if (main && main.id !== on.id) {

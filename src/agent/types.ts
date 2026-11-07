@@ -155,7 +155,7 @@ export interface AgentRunOptions {
   subagentModel?: string;
   /**
    * A ceiling on every account's switch lines for this run only, by window
-   * (`five_hour`, `seven_day`), 1–100: 课堂精练 leaves an account at its
+   * (`five_hour`, `seven_day`), 1–100: 记忆整合 leaves an account at its
    * 80% even where chats go on further. Such a run never makes the account it
    * lands on the main one, and never moves to an account at or past the
    * ceiling. Adapters with a single account ignore it.

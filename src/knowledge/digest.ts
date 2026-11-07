@@ -1,5 +1,5 @@
 /**
- * 全局知识整合层: 课堂精练's last step folds the raw notes of every chat
+ * 全局知识整合层: 记忆整合's last step folds the raw notes of every chat
  * (`notes/<scope>/…`, appended to, never merged in place) into topic notes
  * of their own —
  *

@@ -29,7 +29,7 @@ const MAX_TONIGHT_IN_PROMPT = 40;
 const TONIGHT_CHARS = 120;
 const MAX_NARRATIVE = 300;
 
-const INSTRUCTIONS = `你在做「课堂精练」的 REM 阶段：把今晚新提出、还没验证的笔记候选（candidates，编号 T1、T2…）和候选池里之前攒下的候选（pool，编号 P1、P2…）按主题归类，找出说的是同一件事的；再用两三句话写今晚的主题叙事，写进梦境日记给管理员看。
+const INSTRUCTIONS = `你在做「记忆整合」的 REM 阶段：把今晚新提出、还没验证的笔记候选（candidates，编号 T1、T2…）和候选池里之前攒下的候选（pool，编号 P1、P2…）按主题归类，找出说的是同一件事的；再用两三句话写今晚的主题叙事，写进梦境日记给管理员看。
 
 只输出一个 JSON 对象，不要输出任何其他文字，不要调用任何工具，不要读写文件。
 

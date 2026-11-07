@@ -19,7 +19,7 @@ export interface TranscriptExchange {
   /**
    * Markdown files the agent's tool calls named while answering (absolute or
    * `~/` paths, at most {@link MAX_EXCHANGE_READS}) — which notes and skills
-   * it opened, for 课堂精练's recall counts. Absent when none.
+   * it opened, for 记忆整合's recall counts. Absent when none.
    */
   reads?: string[];
 }

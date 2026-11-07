@@ -62,7 +62,7 @@ export const FABLE_WINDOW = 'seven_day_fable';
 export type SwitchLines = Record<WindowKind, number>;
 
 /**
- * A ceiling one run puts on every account's lines (课堂精练 stops using an
+ * A ceiling one run puts on every account's lines (记忆整合 stops using an
  * account at 80% even where chats go on to 98%). A window left out keeps the
  * account's own line; a cap never raises one.
  */

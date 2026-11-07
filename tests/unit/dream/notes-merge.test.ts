@@ -26,7 +26,7 @@ afterEach(async () => {
 async function note(scope: string, topic: string, entries: Array<[string, string]>): Promise<void> {
   await mkdir(join(dir, 'notes', scope), { recursive: true });
   const lines = entries.map(([id, text]) => `- [${id}] ${text}`).join('\n');
-  await writeFile(join(dir, 'notes', scope, `${topic}.md`), `# ${topic}\n\n课堂精练归纳的项目事实。\n${lines}\n`, 'utf8');
+  await writeFile(join(dir, 'notes', scope, `${topic}.md`), `# ${topic}\n\n记忆整合归纳的项目事实。\n${lines}\n`, 'utf8');
 }
 
 async function seed(): Promise<NoteFile[]> {

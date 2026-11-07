@@ -1238,7 +1238,7 @@ describe('pausing an account', () => {
     const calls: string[] = [];
     pool.promote('b');
     await pool.flush();
-    // A capped run (课堂精练) does not follow the main account: only the pause moves it.
+    // A capped run (记忆整合) does not follow the main account: only the pause moves it.
     const run = runWithAccountFailover({ ...OPTS, accountLineCap: { five_hour: 80 } }, {
       pool,
       spawn: (_opts, account) => {
@@ -1287,7 +1287,7 @@ describe('pausing an account', () => {
   });
 });
 
-describe('a per-run line cap (课堂精练)', () => {
+describe('a per-run line cap (记忆整合)', () => {
   const CAP = { seven_day: 80 } as const;
 
   it('lowers every line for the calls that pass it, and never raises one', async () => {
@@ -1527,7 +1527,7 @@ describe('a window about to reset opens its switch line', () => {
     pool.observe('backup3', limit({ windows: [{ kind: 'five_hour', usedPercent: 70, resetsAt: NIGHT + 45 * MIN }] }));
     expect(pool.lineOf('backup3', 'five_hour', NIGHT)).toBe(GRACE_LINE);
     expect(pool.lineOf('backup3', 'five_hour', NIGHT - HOUR)).toBe(60);
-    // The run's cap (课堂精练 stops at 80%) still holds.
+    // The run's cap (记忆整合 stops at 80%) still holds.
     expect(pool.lineOf('backup4', 'five_hour', NOW, { five_hour: 50 })).toBe(50);
     // 98% and up is past the opened line too.
     pool.observe('backup4', limit({ windows: [{ kind: 'five_hour', usedPercent: 98, resetsAt: NOW + 5 * MIN }] }));

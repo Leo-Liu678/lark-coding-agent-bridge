@@ -19,7 +19,7 @@ export interface KnowledgeContext {
   skills?: SkillRef[];
   /** Where the notes live: note `x/y` is `<notesDir>/x/y.md`. */
   notesDir?: string;
-  /** Topic notes (课堂精练), names only: `external/…` came from other bots' libraries. */
+  /** Topic notes (记忆整合), names only: `external/…` came from other bots' libraries. */
   notes?: string[];
   /** Set when notes were dropped to stay inside the budget. */
   truncated?: boolean;
@@ -64,7 +64,7 @@ const MAX_SKILLS = 80;
  */
 const MAX_DESCRIPTION_CHARS = 240;
 const SKILL_INDEX_MAX_CHARS = 16_000;
-/** 课前学习 writes what it learned from other bots under `notes/external/`; every chat may read it. */
+/** 外部学习 writes what it learned from other bots under `notes/external/`; every chat may read it. */
 const EXTERNAL_NOTES_SCOPE = 'external';
 /**
  * The notes index has four shares (主人 2026-11-05):
@@ -104,7 +104,7 @@ export async function buildKnowledgeContext(
     input.store.listSkills(),
     noteCandidates(input.store, input.scopeId, { ownerPrivate: input.ownerPrivate }),
   ]);
-  // The notes read most lately first (课堂精练's recall counts); ties keep this topic's, the chat's, then other topics' order.
+  // The notes read most lately first (记忆整合's recall counts); ties keep this topic's, the chat's, then other topics' order.
   const globalNotes = input.store.rankNotes(candidates.global);
   const externalNotes = input.store.rankNotes(candidates.external);
   const ownNotes = [...input.store.rankNotes(candidates.own), ...input.store.rankNotes(candidates.concerned)];
