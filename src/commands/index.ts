@@ -168,6 +168,7 @@ import { createBoundChat, defaultChatName } from '../bot/group';
 import { fetchKnownChats, type KnownChat } from '../bot/lark-info';
 import type { PendingRotationStore } from '../session/rotation-store';
 import type { CodeSnippetStore } from '../card/code-snippets';
+import { maskEmails } from '../card/mask-email';
 import { decideRotation } from '../session/smart-session';
 import { probeAgentSession } from '../agent/session-probe';
 import { describeMeetingError, type MeetingManager } from '../meeting/manager';
@@ -229,7 +230,7 @@ export interface Controls {
   audit?: AuditLog;
   /** 会话智能压缩 closes the agent asked for, read by `/status`. Late-bound by startChannel. */
   pendingRotations?: Pick<PendingRotationStore, 'get'>;
-  /** Code blocks behind finished cards' 「复制代码」 buttons (see /copycode). */
+  /** Answers and code blocks behind finished cards' copy buttons (see /copytext, /copycode). */
   codeSnippets?: Pick<CodeSnippetStore, 'get' | 'put'>;
   /** 课堂精练 backing `/practice` and the console's dream panel. Late-bound by startChannel. */
   dream?: DreamService;
@@ -302,6 +303,7 @@ const handlers: Record<string, Handler> = {
   '/config': handleConfig,
   '/stop': handleStop,
   '/copycode': handleCopyCode,
+  '/copytext': handleCopyText,
   '/timeout': handleTimeout,
   '/ps': handlePs,
   '/exit': handleExit,
@@ -459,6 +461,28 @@ async function handleCopyCode(args: string, ctx: CommandContext): Promise<void> 
   } catch (err) {
     log.fail('command', err, { step: 'copycode' });
     await reply(ctx, '代码发送失败，请稍后再点一次。');
+  }
+}
+
+/**
+ * 「复制全文」 button on a finished card: resend the whole answer as a
+ * rich-text reply to the card. On mobile a card's text can't be selected;
+ * a rich-text message can be copied whole or drag-selected in part, and it
+ * copies as rendered text, without the markdown marks plain text would keep.
+ */
+async function handleCopyText(args: string, ctx: CommandContext): Promise<void> {
+  const key = args.trim();
+  const text = key ? ctx.controls.codeSnippets?.get(key) : undefined;
+  if (!text) {
+    await reply(ctx, '这段回复已经找不到了（太久以前的卡片），请让我重新发一次。');
+    return;
+  }
+  log.info('command', 'copytext', { key, chars: text.length });
+  try {
+    await ctx.channel.send(ctx.msg.chatId, { markdown: maskEmails(text) }, commandReplyOptions(ctx));
+  } catch (err) {
+    log.fail('command', err, { step: 'copytext' });
+    await reply(ctx, '全文发送失败，请稍后再点一次。');
   }
 }
 

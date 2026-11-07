@@ -516,7 +516,7 @@ export async function startChannel(deps: StartChannelDeps): Promise<BridgeChanne
     deps.appPaths?.profileDir ? join(deps.appPaths.profileDir, 'auto-effort.json') : undefined,
   );
   await autoEfforts.load();
-  // 复制代码: finished cards' copy buttons carry a key into this store.
+  // 复制全文 / 复制代码: finished cards' copy buttons carry a key into this store.
   if (deps.appPaths?.mediaDir) {
     const codeSnippets = new CodeSnippetStore(join(dirname(deps.appPaths.mediaDir), 'code-snippets.json'));
     await codeSnippets.load();

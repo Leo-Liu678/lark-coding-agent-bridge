@@ -56,14 +56,28 @@ describe('copy buttons on the run card', () => {
     { type: 'done', terminationReason: 'normal' },
   ]);
 
-  it('adds one button per code block on a finished card, carrying only the key', () => {
+  it('adds a copy-all button, then one per code block, on a finished card, carrying only keys', () => {
     const kept: string[] = [];
     const card = renderCard(done, { copyCode: (code) => (kept.push(code), snippetKey(code)) });
-    expect(kept).toEqual([SQL, 'ls -la']);
+    expect(kept).toEqual([ANSWER.trim(), SQL, 'ls -la']);
     expect(buttons(card)).toEqual([
+      ['📄 复制全文', { cmd: `copytext.${snippetKey(ANSWER.trim())}` }],
       ['📋 复制 #1 SQL', { cmd: `copycode.${snippetKey(SQL)}` }],
       ['📋 复制 #2 BASH', { cmd: `copycode.${snippetKey('ls -la')}` }],
     ]);
+  });
+
+  it('copies the text around tool calls, not the tool calls themselves', () => {
+    const state = stateFrom([
+      { type: 'text', delta: '先查一下。' },
+      { type: 'tool_use', id: 't1', name: 'Bash', input: { command: 'git status' } },
+      { type: 'tool_result', id: 't1', output: 'clean', isError: false },
+      { type: 'text', delta: '工作区是干净的。' },
+      { type: 'done', terminationReason: 'normal' },
+    ]);
+    const kept: string[] = [];
+    renderCard(state, { copyCode: (text) => (kept.push(text), snippetKey(text)) });
+    expect(kept).toEqual(['先查一下。\n\n工作区是干净的。']);
   });
 
   it('labels a lone block without a number', () => {
@@ -71,27 +85,35 @@ describe('copy buttons on the run card', () => {
       { type: 'text', delta: '```\nmake\n```' },
       { type: 'done', terminationReason: 'normal' },
     ]);
-    expect(buttons(renderCard(one, { copyCode: snippetKey }))[0]![0]).toBe('📋 复制代码');
+    expect(buttons(renderCard(one, { copyCode: snippetKey }))[1]![0]).toBe('📋 复制代码');
   });
 
-  it('adds none while running, without a store, or when there is no code', () => {
-    const running = stateFrom([{ type: 'text', delta: ANSWER }]);
-    expect(buttons(renderCard(running, { copyCode: snippetKey })).map(([label]) => label)).toEqual(['⏹ 终止']);
-    expect(buttons(renderCard(done))).toEqual([]);
+  it('offers only copy-all when there is no code', () => {
     const plain = stateFrom([
       { type: 'text', delta: 'no code here' },
       { type: 'done', terminationReason: 'normal' },
     ]);
-    expect(buttons(renderCard(plain, { copyCode: snippetKey }))).toEqual([]);
+    expect(buttons(renderCard(plain, { copyCode: snippetKey }))).toEqual([
+      ['📄 复制全文', { cmd: `copytext.${snippetKey('no code here')}` }],
+    ]);
   });
 
-  it(`stops at ${MAX_COPY_BUTTONS} buttons`, () => {
+  it('adds none while running, without a store, or when there is no text', () => {
+    const running = stateFrom([{ type: 'text', delta: ANSWER }]);
+    expect(buttons(renderCard(running, { copyCode: snippetKey })).map(([label]) => label)).toEqual(['⏹ 终止']);
+    expect(buttons(renderCard(done))).toEqual([]);
+    const empty = stateFrom([{ type: 'done', terminationReason: 'normal' }]);
+    expect(buttons(renderCard(empty, { copyCode: snippetKey }))).toEqual([]);
+  });
+
+  it(`stops at ${MAX_COPY_BUTTONS} code buttons`, () => {
     const many = Array.from({ length: MAX_COPY_BUTTONS + 2 }, (_, i) => `\`\`\`\ncmd ${i}\n\`\`\``).join('\n\n');
     const state = stateFrom([
       { type: 'text', delta: many },
       { type: 'done', terminationReason: 'normal' },
     ]);
-    expect(buttons(renderCard(state, { copyCode: snippetKey }))).toHaveLength(MAX_COPY_BUTTONS);
+    const labels = buttons(renderCard(state, { copyCode: snippetKey })).map(([label]) => label);
+    expect(labels.filter((label) => label.startsWith('📋'))).toHaveLength(MAX_COPY_BUTTONS);
   });
 });
 

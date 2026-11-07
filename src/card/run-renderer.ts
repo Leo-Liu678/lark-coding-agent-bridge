@@ -49,9 +49,10 @@ export interface RunCardRenderOptions {
   /** Language of the bridge's own words on the card; Chinese when absent. */
   locale?: Locale;
   /**
-   * Keep a code block for its copy button and return the key the button
-   * carries. When set, a finished card gets one 「复制代码」 button per fenced
-   * block in the answer (see {@link copyButtons}).
+   * Keep a snippet (the whole answer, or one code block) for its copy button
+   * and return the key the button carries. When set, a finished card gets a
+   * 「复制全文」 button and one 「复制代码」 button per fenced block in the
+   * answer (see {@link copyButtons}).
    */
   copyCode?: (code: string) => string;
 }
@@ -330,32 +331,42 @@ function stopButton(options: RunCardRenderOptions, t: RunStrings): object {
 }
 
 /**
- * Feishu cards can't write the clipboard, and their code blocks have no copy
- * icon, so each code block gets a button: a click makes the bridge send that
- * block alone as a plain-text message, which long-press / right-click 复制
- * copies whole. The button carries only the snippet's key.
+ * Feishu cards can't write the clipboard, their code blocks have no copy
+ * icon, and on mobile a card's text can't be selected at all. So a finished
+ * card gets copy buttons, each carrying only a snippet key:
+ *   - 「复制全文」: the bridge resends the whole answer as a rich-text message,
+ *     where long-press can copy all of it or drag-select just a part;
+ *   - one per code block: the bridge sends that block alone as plain text,
+ *     which long-press / right-click 复制 copies whole.
  */
-function copyButtons(state: RunState, copyCode: (code: string) => string, t: RunStrings): object[] {
-  const text = state.blocks
+function copyButtons(state: RunState, keep: (text: string) => string, t: RunStrings): object[] {
+  const texts = state.blocks
     .filter((b): b is Extract<Block, { kind: 'text' }> => b.kind === 'text')
-    .map((b) => b.content)
-    .join('\n');
-  const blocks = extractCodeBlocks(text).slice(0, MAX_COPY_BUTTONS);
-  if (blocks.length === 0) return [];
-  const columns = blocks.map((block, i) => ({
-    tag: 'column',
-    width: 'auto',
-    elements: [
-      {
-        tag: 'button',
-        text: { tag: 'plain_text', content: t.copyCode(blocks.length > 1 ? i + 1 : undefined, block.lang) },
-        type: 'default',
-        size: 'small',
-        behaviors: [{ type: 'callback', value: { cmd: `copycode.${copyCode(block.code)}` } }],
-      },
-    ],
-  }));
+    .map((b) => b.content);
+  const answer = texts
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .join('\n\n');
+  if (!answer) return [];
+  const blocks = extractCodeBlocks(texts.join('\n')).slice(0, MAX_COPY_BUTTONS);
+  const buttons = [
+    copyButton(t.copyAll, `copytext.${keep(answer)}`),
+    ...blocks.map((block, i) =>
+      copyButton(t.copyCode(blocks.length > 1 ? i + 1 : undefined, block.lang), `copycode.${keep(block.code)}`),
+    ),
+  ];
+  const columns = buttons.map((button) => ({ tag: 'column', width: 'auto', elements: [button] }));
   return [{ tag: 'column_set', flex_mode: 'flow', horizontal_spacing: '8px', columns }];
+}
+
+function copyButton(label: string, cmd: string): object {
+  return {
+    tag: 'button',
+    text: { tag: 'plain_text', content: label },
+    type: 'default',
+    size: 'small',
+    behaviors: [{ type: 'callback', value: { cmd } }],
+  };
 }
 
 function footerStatus(
