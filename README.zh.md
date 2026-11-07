@@ -443,6 +443,7 @@ Claude 和 Codex 读的是同一份 skill 索引，一个文件同时服务两�
 - **怎么提交**：从远端最新状态新拉一份，在 `dream/<批次>` 分支上提交一次，推送这个新分支并开 Draft PR；不 force push、不碰默认分支、不跑仓库的 hooks。所有目标仓库都先在本地提交，全部成功后才记下检查点（游标前移、候选标为已提）；检查点之前任何一处失败或被取消，整批草稿作废、下次重读，不会出现半批 PR。检查点之后中断（重启、断网）的推送和开 PR 下一轮接着做，不会重复开 PR。PR 正文写明每条的理由、来源（会话、范围、轮次）、哪些被降级、哪些没采纳。不要的条目直接在 PR 里删，整批不要就关掉 PR，同样的候选不会再提；已经合并的用 `/practice revert <批次>` 开一个 revert Draft PR。
 - **多个 bot 共用仓库**：两个 profile（比如 CC 和 Poki）绑了同一个知识库或 skill 库时，一轮开始前按仓库远端地址拿本机的锁，另一个正在整理同一个仓库就这轮不跑并说明是谁占着。
 - **目标仓库**：沿用现有配置——知识库用 `/knowledge bind` 绑定的 `origin`；skill 新建到 `skills.libraries` 里唯一的那个库（有多个库时在 `preferences.dreamTuning.skillLibrary` 指定），更新则回到该 skill 所在的库。当前 `gh` 账号对某个库没有写权限、或库固定在 tag / 提交上时，跳过该库并在结果里说明。`gh` 不可用时草稿留在本地，下一轮先补推、补开 PR。
+- **暂停提交 skill**：skill 库是团队共用仓库、暂时不想往里提东西时，设 `"holdSkills": true`：skill 提案不 clone、不推分支、不开 PR，只写到 profile 目录 `dream/held-skills/<批次>/<库>/` 供你查看；记忆和笔记照常提交。`/practice` 的 skill 库一行会标出「暂停提交」。
 - **上限**（profile 的 `preferences.dreamTuning`，可选）：
 
 ```json
@@ -452,6 +453,7 @@ Claude 和 Codex 读的是同一份 skill 索引，一个文件同时服务两�
   "maxRunMinutes": 20,
   "minIdleMinutes": 30,
   "skillLibrary": "team-skills",
+  "holdSkills": false,
   "scopes": ["oc_xxx"],
   "window": "01:00-07:00",
   "timezone": "Asia/Shanghai",

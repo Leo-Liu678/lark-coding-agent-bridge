@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -451,6 +451,28 @@ describe('DreamService', { timeout: TIMEOUT }, () => {
     expect(runs[0]!.note).toContain('补开了 1 个');
     expect(runs[1]!.targets[0]).toMatchObject({ phase: 'pr-created', prNumber: 7 });
     expect(h.submits).toHaveLength(1);
+  });
+
+  it('with holdSkills, keeps skill proposals local: no branch on the library, memory still published', async () => {
+    const h = await harness({ tuning: { holdSkills: true } });
+    talk(h, 'sess-1');
+    await h.service.start({ id: 'ou-admin' });
+    await h.service.idle();
+    const run = h.service.runs()[0]!;
+    expect(run.status).toBe('succeeded');
+    expect(run.targets.map((t) => [t.repo, t.phase])).toEqual([
+      ['knowledge', 'pr-created'],
+      ['skills:team', 'skipped'],
+    ]);
+    expect(run.targets[1]!.error).toContain('dreamTuning.holdSkills');
+    // Nothing reached the library: no dream/ branch, no PR against it.
+    const heads = await git(h.skillsRemote, ['for-each-ref', '--format=%(refname:short)', 'refs/heads']);
+    expect(heads.stdout.trim()).toBe('main');
+    const prs = (await gh.calls()).filter((c) => c.args?.[0] === 'pr' && c.args[1] === 'create');
+    expect(prs).toHaveLength(1);
+    // The proposal is kept for the owner to read.
+    const held = await readFile(join(root, 'profile', 'dream', 'held-skills', run.id, 'team', 'release-check', 'SKILL.md'), 'utf8');
+    expect(held).toContain('pnpm ci:local');
   });
 
   it('skips a library it may not write to and still finishes', async () => {

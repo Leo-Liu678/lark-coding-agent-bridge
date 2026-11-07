@@ -109,6 +109,8 @@ Deferred, with reasons:
 - **Review load:** an unreviewed PR pauses automatic rounds (`maxOpenPrs`).
 - **Data flow:** chat content distilled into notes lands in the knowledge
   repository, which must be private. Updates to an existing skill go back to the
-  library that skill came from, which may be a shared team repository.
+  library that skill came from, which may be a shared team repository. Set
+  `dreamTuning.holdSkills: true` to keep every skill proposal local
+  (`dream/held-skills/<batch>/`) until the team library may be written to.
 - **Accuracy:** until transcript verification exists, "verified" is judged from
   final answers, so review is the main safeguard.

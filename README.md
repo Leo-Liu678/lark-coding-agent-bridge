@@ -443,6 +443,7 @@ Why it is built this way, how it maps to Anthropic's *The components of agent me
 - **Publishing**: a fresh clone of the remote's latest state, one commit on a `dream/<batch>` branch, a push of that new branch and a Draft PR — no force push, never the default branch, repository hooks off. Every target repository is committed locally first; only when all succeed is a checkpoint recorded (cursors move, candidates are marked proposed). A failure or cancel before the checkpoint drops the whole batch to be re-read next time — never half a batch of PRs. Pushes and PRs interrupted after the checkpoint (restart, network) are resumed by the next round, never opened twice. The PR body lists each item's reason and source (conversation, scope, turns), what was downgraded and what was left out. Delete what you do not want in the PR, or close it to drop the batch (the same candidates are not proposed again); for one already merged, `/practice revert <batch>` opens a revert Draft PR.
 - **Bots sharing a repository**: when two profiles (say CC and Poki) are bound to the same knowledge repository or skill library, a round takes a host-wide lock per repository remote before it starts; if another one is consolidating the same repository, this round does not run and says who holds it.
 - **Targets**: existing configuration — the knowledge repository's `origin` from `/knowledge bind`; new skills go to the only library in `skills.libraries` (with several, name one in `preferences.dreamTuning.skillLibrary`), updates go back to the library the skill comes from. A library the current `gh` account cannot write to, or one pinned to a tag / commit, is skipped and reported. When `gh` is unavailable the draft stays local and the next round pushes it and opens the PR first.
+- **Holding skills back**: when the skill library is a shared team repository you do not want touched yet, set `"holdSkills": true` — skill proposals are not cloned, pushed or opened as PRs; they are written to `dream/held-skills/<batch>/<library>/` in the profile directory for you to read, while memory and notes are published as usual. `/practice` marks the skill-library line as held.
 - **Limits** (optional, profile `preferences.dreamTuning`):
 
 ```json
@@ -452,6 +453,7 @@ Why it is built this way, how it maps to Anthropic's *The components of agent me
   "maxRunMinutes": 20,
   "minIdleMinutes": 30,
   "skillLibrary": "team-skills",
+  "holdSkills": false,
   "scopes": ["oc_xxx"],
   "window": "01:00-07:00",
   "timezone": "Asia/Shanghai",

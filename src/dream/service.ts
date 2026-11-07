@@ -1,5 +1,5 @@
 import { randomBytes } from 'node:crypto';
-import { mkdir, readdir, readFile, realpath, rm } from 'node:fs/promises';
+import { mkdir, readdir, readFile, realpath, rm, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { agentCapability } from '../agent/capability';
@@ -66,6 +66,7 @@ import { buildRemPrompt, parseRemOutput, remWorthRunning } from './rem';
 import {
   hasArgumentHint,
   parseDreamOutput,
+  skillDirName,
   validateDreamProposals,
   type DreamRejection,
   type MemoryAddition,
@@ -1604,6 +1605,17 @@ export class DreamService {
     );
   }
 
+  /** `holdSkills`: write each proposal's SKILL.md under `held-skills/<batch>/<library>/`, outside any checkout. */
+  private async holdSkillProposals(id: string, library: string, proposals: readonly SkillProposal[]): Promise<string> {
+    const base = join(this.deps.workDir, 'held-skills', id, library || '-');
+    for (const proposal of proposals) {
+      const dir = join(base, `${proposal.action === 'update' ? 'update-' : ''}${skillDirName(proposal.name)}`);
+      await mkdir(dir, { recursive: true });
+      await writeFile(join(dir, 'SKILL.md'), proposal.body, 'utf8');
+    }
+    return base;
+  }
+
   private async draftSkills(
     id: string,
     proposals: SkillProposal[],
@@ -1636,6 +1648,21 @@ export class DreamService {
     }
     const published: string[] = [];
     for (const [name, group] of groups) {
+      if (settings.holdSkills) {
+        // dreamTuning.holdSkills: nothing reaches a skill library — no checkout,
+        // no branch, no PR. The proposals are kept locally for the owner to read
+        // and are not marked published, so they can be proposed again later.
+        const held = await this.holdSkillProposals(id, name, group.items);
+        this.saveTarget(id, {
+          repo: `skills:${name || '-'}`,
+          label: name ? `skill 库 ${name}` : 'skill 库',
+          branch: dreamBranch(id),
+          phase: 'skipped',
+          items: 0,
+          error: `skill 提交已暂停（dreamTuning.holdSkills）：${group.items.length} 个提案只存本地 ${held}，没有推送、没有开 PR`,
+        });
+        continue;
+      }
       // publish: push with skillUpdates: pr — new skills go straight in, rewrites of existing ones wait in a Draft PR.
       const split = direct && settings.skillUpdates === 'pr';
       const parts = split

@@ -437,6 +437,14 @@ export interface DreamTuning {
    */
   skillUpdates?: 'pr' | 'push';
   /**
+   * Keep skill proposals local instead of sending them to any skill library:
+   * no checkout, no branch pushed, no PR opened — for a library that is a
+   * shared team repository the owner does not want touched yet. Proposals are
+   * written under the dream work directory (`held-skills/<batch>/`) for the
+   * owner to read; memory and notes are published as usual. Default false.
+   */
+  holdSkills?: boolean;
+  /**
    * 外部学习: repositories (other bots' knowledge / skill libraries) studied at
    * the start of every run, only what changed since the last run. Read-only:
    * never written to. What is worth keeping lands in this profile's own
@@ -522,6 +530,8 @@ export interface DreamSettings {
   scopes?: string[];
   publish: 'pr' | 'push';
   skillUpdates: 'pr' | 'push';
+  /** See {@link DreamTuning.holdSkills}. */
+  holdSkills: boolean;
   external: DreamExternalLibraryConfig[];
   requireArgumentHint: boolean;
   /** See {@link DreamTuning.deepSleep}. */
@@ -558,6 +568,7 @@ export const DREAM_DEFAULTS: DreamSettings = {
   minIdleMinutes: 30,
   publish: 'pr',
   skillUpdates: 'pr',
+  holdSkills: false,
   external: [],
   requireArgumentHint: false,
   deepSleep: true,
@@ -829,6 +840,7 @@ export function resolveDreamSettings(tuning: DreamTuning | undefined): DreamSett
     ...(scopes.length > 0 ? { scopes } : {}),
     publish: raw.publish === 'push' ? 'push' : 'pr',
     skillUpdates: raw.skillUpdates === 'pr' || raw.skillUpdates === 'push' ? raw.skillUpdates : raw.publish === 'push' ? 'push' : 'pr',
+    holdSkills: raw.holdSkills === true,
     external: resolveExternalLibraries(raw.externalLibraries),
     requireArgumentHint: raw.requireArgumentHint === true,
     deepSleep: raw.deepSleep !== false,
